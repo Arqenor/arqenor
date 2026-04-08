@@ -16,11 +16,17 @@ impl MacosProcessMonitor {
 }
 
 fn build_process_info(p: &sysinfo::Process) -> ProcessInfo {
+    // sysinfo on macOS uses proc_pidpath internally — the best available API.
+    // Filter empty strings so we consistently get None instead of Some("").
+    let exe_path = p.exe()
+        .map(|e| e.to_string_lossy().into_owned())
+        .filter(|s| !s.is_empty());
+
     ProcessInfo {
         pid:            usize::from(p.pid()) as u32,
         ppid:           p.parent().map(|x| usize::from(x) as u32).unwrap_or(0),
         name:           p.name().to_string(),
-        exe_path:       p.exe().map(|e| e.to_string_lossy().into_owned()),
+        exe_path,
         cmdline:        Some(p.cmd().join(" ")),
         user:           None,
         sha256:         None,

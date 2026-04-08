@@ -6,6 +6,9 @@ use sentinel_core::{
 };
 use sysinfo::{ProcessRefreshKind, RefreshKind, System};
 use tokio::sync::mpsc::Sender;
+use windows::Win32::Foundation::CloseHandle;
+use windows::Win32::System::Threading::{OpenProcess, QueryFullProcessImageNameW, PROCESS_QUERY_LIMITED_INFORMATION};
+use windows::core::PWSTR;
 
 pub struct WindowsProcessMonitor;
 
@@ -15,15 +18,45 @@ impl WindowsProcessMonitor {
     }
 }
 
+/// Fallback exe path resolution using QueryFullProcessImageNameW.
+/// Works with PROCESS_QUERY_LIMITED_INFORMATION — less restrictive than
+/// what sysinfo uses internally (PROCESS_QUERY_INFORMATION | PROCESS_VM_READ).
+fn win32_exe_path(pid: u32) -> Option<String> {
+    unsafe {
+        let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid).ok()?;
+        let mut buf = [0u16; 1024];
+        let mut size = 1024u32;
+        let ok = QueryFullProcessImageNameW(
+            handle,
+            Default::default(), // PROCESS_NAME_WIN32 = 0
+            PWSTR(buf.as_mut_ptr()),
+            &mut size,
+        )
+        .is_ok();
+        let _ = CloseHandle(handle);
+        if ok && size > 0 {
+            Some(String::from_utf16_lossy(&buf[..size as usize]))
+        } else {
+            None
+        }
+    }
+}
+
 fn build_process_info(p: &sysinfo::Process) -> ProcessInfo {
+    let pid = usize::from(p.pid()) as u32;
+    let exe_path = p.exe()
+        .map(|e| e.to_string_lossy().into_owned())
+        .filter(|s| !s.is_empty())
+        .or_else(|| win32_exe_path(pid));
+
     ProcessInfo {
-        pid:            usize::from(p.pid()) as u32,
+        pid,
         ppid:           p.parent().map(|x| usize::from(x) as u32).unwrap_or(0),
         name:           p.name().to_string(),
-        exe_path:       p.exe().map(|e| e.to_string_lossy().into_owned()),
+        exe_path,
         cmdline:        Some(p.cmd().join(" ")),
-        user:           None, // TODO: WinAPI enrichment Phase 2
-        sha256:         None, // TODO: hash exe Phase 2
+        user:           None,
+        sha256:         None,
         started_at:     None,
         loaded_modules: vec![],
     }

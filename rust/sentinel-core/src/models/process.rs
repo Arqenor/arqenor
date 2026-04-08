@@ -29,3 +29,16 @@ pub struct ProcessEvent {
     pub process:    ProcessInfo,
     pub event_time: DateTime<Utc>,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ScoreFactor {
+    pub name:      String,
+    pub points:    u8,
+    pub attack_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProcessScore {
+    pub total:   u8,
+    pub factors: Vec<ScoreFactor>,
+}

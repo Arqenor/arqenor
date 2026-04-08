@@ -38,6 +38,16 @@ SENTINEL monitors your machine in real time: running processes, filesystem chang
 
 ---
 
+## Screenshots
+
+### Desktop App (Tauri v2)
+![SENTINEL Desktop App](images/desktop-app-v-0-1.png)
+
+### Terminal UI (Ratatui)
+![SENTINEL Terminal UI](images/terminal-ui.png)
+
+---
+
 ## Features
 
 | Category | Capability |
@@ -182,12 +192,14 @@ Full reference → [`docs/guides/configuration.md`](docs/guides/configuration.md
 
 ## Roadmap
 
-- **Phase 1 — Foundation** ✅ SQLite · trait abstractions · IPC skeleton · CLI/TUI MVP
-- **Phase 2 — Host Analyzer** ETW (Windows) · eBPF (Linux) · ES framework (macOS) · process module enrichment
-- **Phase 3 — Network Scanner** Host discovery · port scan · service fingerprinting · anomaly detection
-- **Phase 4 — Orchestrator** Rule engine · alert pipeline · DuckDB event analytics · correlation
-- **Phase 5 — TUI Polish** Reports · export · dashboard themes
-- **Phase 6 — Advanced** YARA-X scanning · traffic anomaly · supply chain checks
+See [`docs/roadmap/ROADMAP.md`](docs/roadmap/ROADMAP.md) for the full 6-phase plan.
+
+- **Phase 1 — Detection Engine + LOTL Rules** 🟡 *in progress* — LOLBin rules (15 techniques), Windows persistence B1-B9, credential theft detection, FIM, multi-factor scoring, Alerts UI · [`TODO`](docs/roadmap/TODO-phase1.md)
+- **Phase 2 — Kernel Telemetry** ETW (Windows) · eBPF (Linux) · ES framework (macOS)
+- **Phase 3 — Network Deep Inspection** Beaconing detection (RITA) · DNS tunneling · DGA · JA4 fingerprinting
+- **Phase 4 — ML Behavioral** PE features + XGBoost/ONNX · Isolation Forest · SIGMA rule engine · IOC feeds
+- **Phase 5 — Memory Forensics** VAD walk · process hollowing · NTDLL hook detection · YARA-X · BYOVD
+- **Phase 6 — Cloud Fleet** gRPC telemetry · ClickHouse · fleet dashboard · automated response (open-core premium)
 
 ---
 

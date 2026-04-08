@@ -3,7 +3,7 @@ mod network;
 mod ui;
 
 use anyhow::Result;
-use app::{App, Tab};
+use app::{App, SortCol, Tab};
 use crossterm::{
     event::{self, Event, KeyCode, KeyEventKind, KeyModifiers},
     execute,
@@ -51,6 +51,25 @@ async fn run_app<B: ratatui::backend::Backend>(
                 continue;
             }
 
+            // ── Action menu mode ──────────────────────────────────────────
+            if app.action_menu {
+                match key.code {
+                    KeyCode::Char('k') | KeyCode::Char('K') => app.kill_selected(),
+                    KeyCode::Char('h') | KeyCode::Char('H') => app.hash_selected(),
+                    KeyCode::Char('c') | KeyCode::Char('C') => app.copy_path_selected(),
+                    KeyCode::Esc => { app.action_menu = false; }
+                    _ => {}
+                }
+                continue;
+            }
+            // ── Action result dismiss ─────────────────────────────────────
+            if app.action_result.is_some() {
+                if matches!(key.code, KeyCode::Esc | KeyCode::Enter | KeyCode::Char(' ')) {
+                    app.action_result = None;
+                }
+                continue;
+            }
+
             // ── Filter mode ───────────────────────────────────────────────
             if app.filter_mode {
                 match key.code {
@@ -86,6 +105,14 @@ async fn run_app<B: ratatui::backend::Backend>(
                 KeyCode::Char('1') => app.switch_tab(Tab::Processes),
                 KeyCode::Char('2') => app.switch_tab(Tab::Persistence),
                 KeyCode::Char('3') => app.switch_tab(Tab::Network),
+                KeyCode::Char('4') => app.switch_tab(Tab::Connections),
+
+                // Detail panel toggle
+                KeyCode::Enter => {
+                    if app.tab == Tab::Processes {
+                        app.detail_open = !app.detail_open;
+                    }
+                }
 
                 // Filter
                 KeyCode::Char('/') => {
@@ -106,6 +133,51 @@ async fn run_app<B: ratatui::backend::Backend>(
                 KeyCode::Char('s') | KeyCode::Char('S') => {
                     app.switch_tab(app::Tab::Network);
                     app.net.start_scan();
+                }
+
+                // Action menu (Processes tab only)
+                KeyCode::Char('a') | KeyCode::Char('A') => {
+                    if app.tab == Tab::Processes && app.selected_process().is_some() {
+                        app.action_menu = true;
+                    }
+                }
+
+                // Baseline toggle (Processes tab only)
+                KeyCode::Char('w') | KeyCode::Char('W') => {
+                    if app.tab == Tab::Processes {
+                        app.toggle_baseline();
+                    }
+                }
+
+                // Sort columns (Processes tab only)
+                KeyCode::Char('F') | KeyCode::Char('f') => {
+                    if app.tab == Tab::Processes { app.toggle_sort(SortCol::Risk); }
+                }
+                KeyCode::Char('P') => {
+                    if app.tab == Tab::Processes { app.toggle_sort(SortCol::Pid); }
+                }
+                KeyCode::Char('N') => {
+                    if app.tab == Tab::Processes { app.toggle_sort(SortCol::Name); }
+                }
+                KeyCode::Char('X') => {
+                    if app.tab == Tab::Processes { app.toggle_sort(SortCol::Path); }
+                }
+
+                // Tree mode toggle (Processes tab only)
+                KeyCode::Char('t') | KeyCode::Char('T') => {
+                    if app.tab == Tab::Processes {
+                        app.tree_mode = !app.tree_mode;
+                        app.selected = 0;
+                        app.proc_state.select(Some(0));
+                    }
+                }
+
+                KeyCode::Char('l') | KeyCode::Char('L') => {
+                    if app.tab == Tab::Connections {
+                        app.hide_loopback = !app.hide_loopback;
+                        app.selected = 0;
+                        app.conn_state.select(Some(0));
+                    }
                 }
 
                 _ => {}
