@@ -1,0 +1,22 @@
+[general]
+log_level = "info"
+data_dir  = "./data"
+
+[grpc]
+host_analyzer_addr  = "127.0.0.1:50051"
+network_scanner_addr = "127.0.0.1:50052"
+
+[api]
+listen_addr = "127.0.0.1:8080"
+
+[scan]
+# Filesystem scan root paths (one per line)
+fs_roots = ["C:\\Users", "C:\\Windows\\System32"]
+# Maximum file size to hash (bytes). 0 = no limit.
+max_file_size = 10485760  # 10 MB
+# Scan interval in seconds (for watch mode)
+interval_secs = 60
+
+[alerts]
+# Minimum severity to record: info | low | medium | high | critical
+min_severity = "medium"

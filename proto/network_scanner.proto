@@ -1,0 +1,35 @@
+syntax = "proto3";
+package sentinel.network;
+option go_package = "sentinel/go/internal/grpc/generated;sentinelgrpc";
+
+import "common.proto";
+import "google/protobuf/empty.proto";
+
+message ScanTarget {
+  string cidr           = 1;
+  uint32 timeout_ms     = 2;
+  repeated uint32 ports = 3;
+  bool   service_detect = 4;
+}
+
+message PortResult {
+  uint32 port    = 1;
+  string proto   = 2;
+  string state   = 3;
+  string service = 4;
+  string banner  = 5;
+  string version = 6;
+}
+
+message HostResult {
+  string ip       = 1;
+  string hostname = 2;
+  string mac_addr = 3;
+  bool   is_up    = 4;
+  repeated PortResult open_ports = 5;
+}
+
+service NetworkScanner {
+  rpc StartScan(ScanTarget)                          returns (stream HostResult);
+  rpc ReportAnomaly(sentinel.common.Alert)           returns (google.protobuf.Empty);
+}

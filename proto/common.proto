@@ -1,0 +1,23 @@
+syntax = "proto3";
+package sentinel.common;
+option go_package = "sentinel/go/internal/grpc/generated;sentinelgrpc";
+
+import "google/protobuf/timestamp.proto";
+
+enum Severity {
+  SEVERITY_UNSPECIFIED = 0;
+  INFO     = 1;
+  LOW      = 2;
+  MEDIUM   = 3;
+  HIGH     = 4;
+  CRITICAL = 5;
+}
+
+message Alert {
+  string   id          = 1;
+  Severity severity    = 2;
+  string   kind        = 3;
+  string   message     = 4;
+  google.protobuf.Timestamp occurred_at = 5;
+  map<string, string> metadata = 6;
+}

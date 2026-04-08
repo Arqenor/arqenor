@@ -1,0 +1,74 @@
+syntax = "proto3";
+package sentinel.host;
+option go_package = "sentinel/go/internal/grpc/generated;sentinelgrpc";
+
+import "common.proto";
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/empty.proto";
+
+message ProcessInfo {
+  uint32 pid        = 1;
+  uint32 ppid       = 2;
+  string name       = 3;
+  string exe_path   = 4;
+  string cmdline    = 5;
+  string user       = 6;
+  string sha256     = 7;
+  google.protobuf.Timestamp started_at = 8;
+  repeated string loaded_modules = 9;
+}
+
+message ProcessEvent {
+  enum Kind { CREATED = 0; TERMINATED = 1; MODIFIED = 2; }
+  Kind        kind       = 1;
+  ProcessInfo process    = 2;
+  google.protobuf.Timestamp event_time = 3;
+}
+
+message FileEvent {
+  enum Kind { CREATED = 0; MODIFIED = 1; DELETED = 2; RENAMED = 3; }
+  Kind   kind       = 1;
+  string path       = 2;
+  string sha256     = 3;
+  uint64 size       = 4;
+  google.protobuf.Timestamp event_time = 5;
+}
+
+message PersistenceEntry {
+  string kind     = 1;
+  string name     = 2;
+  string command  = 3;
+  string location = 4;
+  bool   is_new   = 5;
+}
+
+message ScanRequest {
+  string root_path              = 1;
+  bool   recursive              = 2;
+  repeated string include_exts  = 3;
+  uint64 max_size_bytes         = 4;
+}
+
+message SnapshotResponse {
+  repeated ProcessInfo processes = 1;
+  google.protobuf.Timestamp captured_at = 2;
+}
+
+message PersistenceResponse {
+  repeated PersistenceEntry entries = 1;
+}
+
+message HealthResponse {
+  string status   = 1;
+  string platform = 2;
+  string version  = 3;
+}
+
+service HostAnalyzer {
+  rpc GetProcessSnapshot(google.protobuf.Empty) returns (SnapshotResponse);
+  rpc WatchProcesses(google.protobuf.Empty)     returns (stream ProcessEvent);
+  rpc ScanFilesystem(ScanRequest)               returns (stream FileEvent);
+  rpc WatchFilesystem(ScanRequest)              returns (stream FileEvent);
+  rpc GetPersistence(google.protobuf.Empty)     returns (PersistenceResponse);
+  rpc Health(google.protobuf.Empty)             returns (HealthResponse);
+}

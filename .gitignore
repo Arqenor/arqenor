@@ -1,0 +1,52 @@
+# ──────────────────────────────────────────────
+# Rust / Cargo
+# ──────────────────────────────────────────────
+target/
+Cargo.lock.bak
+
+# ──────────────────────────────────────────────
+# Go
+# ──────────────────────────────────────────────
+go/orchestrator
+go/orchestrator.exe
+
+# ──────────────────────────────────────────────
+# Generated proto stubs (run scripts/gen-proto.ps1 to rebuild)
+# ──────────────────────────────────────────────
+go/internal/grpc/generated/*.go
+rust/sentinel-grpc/src/generated/*.rs
+!rust/sentinel-grpc/src/generated/.gitkeep
+!go/internal/grpc/generated/.gitkeep
+
+# ──────────────────────────────────────────────
+# sentinel-desktop (Tauri + React)
+# ──────────────────────────────────────────────
+sentinel-desktop/node_modules/
+sentinel-desktop/dist/
+sentinel-desktop/src-tauri/target/
+sentinel-desktop/.env
+sentinel-desktop/.env.*
+
+# ──────────────────────────────────────────────
+# Runtime data & secrets
+# ──────────────────────────────────────────────
+data/
+*.db
+*.duckdb
+*.log
+
+# Local config overrides (never commit)
+configs/sentinel.local.toml
+.env
+.env.*
+!.env.example
+
+# ──────────────────────────────────────────────
+# OS / editor noise
+# ──────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.vscode/settings.json
+.idea/
+*.swp
+*.swo

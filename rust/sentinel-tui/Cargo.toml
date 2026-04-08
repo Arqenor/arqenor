@@ -1,0 +1,21 @@
+[package]
+name    = "sentinel-tui"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "sentinel-tui"
+path = "src/main.rs"
+
+[dependencies]
+sentinel-core     = { path = "../sentinel-core" }
+sentinel-platform = { path = "../sentinel-platform" }
+chrono            = { workspace = true }
+tokio-stream      = { workspace = true }
+if-addrs          = "0.13"
+ratatui        = { workspace = true }
+crossterm      = { workspace = true }
+tokio          = { workspace = true }
+anyhow         = { workspace = true }
+tracing        = { workspace = true }
+tracing-subscriber = { workspace = true }
