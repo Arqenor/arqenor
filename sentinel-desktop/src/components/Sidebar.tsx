@@ -1,15 +1,36 @@
+import { useEffect, useState } from 'react'
 import { NavLink } from 'react-router-dom'
-import { LayoutDashboard, Cpu, Network, DatabaseZap, Shield } from 'lucide-react'
+import { invoke } from '@tauri-apps/api/core'
+import { LayoutDashboard, Cpu, Network, DatabaseZap, Shield, ShieldAlert } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import type { Alert } from '@/lib/types'
 
 const NAV = [
   { to: '/dashboard',   icon: LayoutDashboard, label: 'Dashboard'   },
+  { to: '/alerts',      icon: ShieldAlert,     label: 'Alerts'      },
   { to: '/processes',   icon: Cpu,             label: 'Processes'   },
   { to: '/network',     icon: Network,         label: 'Network'     },
   { to: '/persistence', icon: DatabaseZap,     label: 'Persistence' },
 ]
 
 export default function Sidebar() {
+  const [criticalCount, setCriticalCount] = useState(0)
+
+  useEffect(() => {
+    const fetchAlerts = async () => {
+      try {
+        const data = await invoke<Alert[]>('get_alerts')
+        setCriticalCount(data.filter(a => a.severity === 'Critical').length)
+      } catch {
+        // silently ignore — alerts may not be available yet
+      }
+    }
+
+    fetchAlerts()
+    const interval = setInterval(fetchAlerts, 30_000)
+    return () => clearInterval(interval)
+  }, [])
+
   return (
     <aside className="flex h-screen w-52 shrink-0 flex-col bg-sidebar border-r border-border">
       {/* Logo */}
@@ -35,6 +56,9 @@ export default function Sidebar() {
           >
             <Icon className="size-4 shrink-0" strokeWidth={1.5} />
             {label}
+            {to === '/alerts' && criticalCount > 0 && (
+              <span className="ml-auto size-2 bg-critical rounded-full animate-pulse" />
+            )}
           </NavLink>
         ))}
       </nav>

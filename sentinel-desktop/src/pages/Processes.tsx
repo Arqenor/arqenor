@@ -7,9 +7,10 @@ import { getProcesses } from '@/lib/commands'
 import type { ProcessRow } from '@/lib/types'
 
 export default function Processes() {
-  const [rows,    setRows]    = useState<ProcessRow[]>([])
-  const [filter,  setFilter]  = useState('')
-  const [loading, setLoading] = useState(true)
+  const [rows,        setRows]        = useState<ProcessRow[]>([])
+  const [filter,      setFilter]      = useState('')
+  const [loading,     setLoading]     = useState(true)
+  const [expandedPid, setExpandedPid] = useState<number | null>(null)
 
   const refresh = useCallback(async () => {
     setLoading(true)
@@ -76,36 +77,65 @@ export default function Processes() {
           </thead>
           <tbody>
             {filtered.map(r => (
-              <tr
-                key={r.info.pid}
-                className="data-row border-b border-border/50 hover:bg-surface-elevated/40 transition-colors"
-              >
-                <td className="px-4 py-2 text-text-muted">{r.info.pid}</td>
-                <td className="px-4 py-2">
-                  <span className={
-                    r.risk === 'Critical' ? 'text-critical font-medium' :
-                    r.risk === 'High'     ? 'text-high font-medium'     :
-                    r.risk === 'Medium'   ? 'text-medium'               :
-                    'text-text'
-                  }>
-                    {r.info.name}
-                  </span>
-                </td>
-                <td className="px-4 py-2 text-text-muted max-w-xs">
-                  <span className="block truncate" title={r.info.exe_path ?? ''}>
-                    {r.info.exe_path ?? <span className="text-text-dim italic">no path</span>}
-                  </span>
-                </td>
-                <td className="px-4 py-2 text-text-muted">{r.info.user ?? '—'}</td>
-                <td className="px-4 py-2 text-right">
-                  <span className={r.score > 0 ? 'text-text font-medium' : 'text-text-dim'}>
-                    {r.score}
-                  </span>
-                </td>
-                <td className="px-4 py-2 text-right">
-                  <RiskBadge risk={r.risk} />
-                </td>
-              </tr>
+              <>
+                <tr
+                  key={r.info.pid}
+                  className="data-row border-b border-border/50 hover:bg-surface-elevated/40 transition-colors"
+                >
+                  <td className="px-4 py-2 text-text-muted">{r.info.pid}</td>
+                  <td className="px-4 py-2">
+                    <span className={
+                      r.risk === 'Critical' ? 'text-critical font-medium' :
+                      r.risk === 'High'     ? 'text-high font-medium'     :
+                      r.risk === 'Medium'   ? 'text-medium'               :
+                      'text-text'
+                    }>
+                      {r.info.name}
+                    </span>
+                  </td>
+                  <td className="px-4 py-2 text-text-muted max-w-xs">
+                    <span className="block truncate" title={r.info.exe_path ?? ''}>
+                      {r.info.exe_path ?? <span className="text-text-dim italic">no path</span>}
+                    </span>
+                  </td>
+                  <td className="px-4 py-2 text-text-muted">{r.info.user ?? '—'}</td>
+                  <td className="px-4 py-2 text-right">
+                    {r.factors && r.factors.length > 0 ? (
+                      <button
+                        onClick={() => setExpandedPid(expandedPid === r.info.pid ? null : r.info.pid)}
+                        className={`font-medium hover:text-accent transition-colors ${r.score > 0 ? 'text-text' : 'text-text-dim'}`}
+                      >
+                        {r.score}
+                        <span className="ml-0.5 text-text-dim text-[10px]">▾</span>
+                      </button>
+                    ) : (
+                      <span className={r.score > 0 ? 'text-text font-medium' : 'text-text-dim'}>{r.score}</span>
+                    )}
+                  </td>
+                  <td className="px-4 py-2 text-right">
+                    <RiskBadge risk={r.risk} />
+                  </td>
+                </tr>
+                {expandedPid === r.info.pid && (
+                  <tr key={`${r.info.pid}-factors`} className="bg-surface-elevated/60">
+                    <td colSpan={6} className="px-8 py-2">
+                      <div className="flex flex-col gap-1">
+                        {r.factors.map((f, i) => (
+                          <div key={i} className="flex items-center gap-3 text-[11px]">
+                            <span className="text-high font-medium w-6 text-right">+{f.points}</span>
+                            <span className="text-text-muted">{f.name}</span>
+                            {f.attack_id && (
+                              <span className="ml-auto px-1 py-0.5 rounded bg-surface border border-border text-accent font-mono text-[10px]">
+                                {f.attack_id}
+                              </span>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </td>
+                  </tr>
+                )}
+              </>
             ))}
             {filtered.length === 0 && !loading && (
               <tr>

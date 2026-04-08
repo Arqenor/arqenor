@@ -15,12 +15,26 @@ impl LinuxProcessMonitor {
     }
 }
 
+/// Fallback: read /proc/<pid>/exe symlink directly.
+/// Works for any process we have permission to access, without extra crates.
+fn proc_exe_path(pid: u32) -> Option<String> {
+    std::fs::read_link(format!("/proc/{}/exe", pid))
+        .ok()
+        .map(|p| p.to_string_lossy().into_owned())
+}
+
 fn build_process_info(p: &sysinfo::Process) -> ProcessInfo {
+    let pid = usize::from(p.pid()) as u32;
+    let exe_path = p.exe()
+        .map(|e| e.to_string_lossy().into_owned())
+        .filter(|s| !s.is_empty())
+        .or_else(|| proc_exe_path(pid));
+
     ProcessInfo {
-        pid:            usize::from(p.pid()) as u32,
+        pid,
         ppid:           p.parent().map(|x| usize::from(x) as u32).unwrap_or(0),
         name:           p.name().to_string(),
-        exe_path:       p.exe().map(|e| e.to_string_lossy().into_owned()),
+        exe_path,
         cmdline:        Some(p.cmd().join(" ")),
         user:           None,
         sha256:         None,

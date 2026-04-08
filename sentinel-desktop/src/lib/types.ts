@@ -14,24 +14,28 @@ export interface ProcessInfo {
 
 export type RiskLevel = 'Normal' | 'Low' | 'Medium' | 'High' | 'Critical'
 
+export interface ScoreFactor {
+  name: string
+  points: number
+  attack_id: string | null
+}
+
 export interface ProcessRow {
   info: ProcessInfo
   risk: RiskLevel
   score: number
+  factors: ScoreFactor[]
 }
 
 // ── Persistence ───────────────────────────────────────────────────────────────
 
 export type PersistenceKind =
-  | 'RegistryRun'
-  | 'ScheduledTask'
-  | 'WindowsService'
-  | 'SystemdUnit'
-  | 'Cron'
-  | 'RcLocal'
-  | 'LdPreload'
-  | 'LaunchDaemon'
-  | 'LaunchAgent'
+  | 'RegistryRun' | 'ScheduledTask' | 'WindowsService'
+  | 'WmiSubscription' | 'ComHijacking' | 'DllSideloading'
+  | 'BitsJob' | 'AppInitDll' | 'IfeoHijack' | 'AccessibilityHijack'
+  | 'PrintMonitor' | 'LsaProvider' | 'NetshHelper'
+  | 'SystemdUnit' | 'Cron' | 'RcLocal' | 'LdPreload'
+  | 'LaunchDaemon' | 'LaunchAgent'
   | 'StartupFolder'
   | { Unknown: string }
 
@@ -48,16 +52,39 @@ export interface PersistenceEntry {
 export type HostRisk = 'Normal' | 'Low' | 'Medium' | 'High'
 export type OsGuess  = 'Windows' | 'Linux' | 'Router' | 'Unknown'
 
+export interface Anomaly {
+  severity: 'high' | 'medium' | 'info'
+  message:  string
+}
+
 export interface HostInfo {
-  ip:    string
-  ports: number[]
-  risk:  HostRisk
-  os:    OsGuess
+  ip:        string
+  hostname:  string | null
+  ports:     number[]
+  risk:      HostRisk
+  os:        OsGuess
+  is_new:    boolean
+  anomalies: Anomaly[]
 }
 
 export interface VpnInfo {
   name:   string
   tunnel: string
+}
+
+// ── Alerts ────────────────────────────────────────────────────────────────────
+
+export type Severity = 'Info' | 'Low' | 'Medium' | 'High' | 'Critical'
+
+export interface Alert {
+  id: string
+  severity: Severity
+  kind: string
+  message: string
+  occurred_at: string   // ISO datetime from Rust chrono
+  metadata: Record<string, string>
+  rule_id: string | null
+  attack_id: string | null
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
