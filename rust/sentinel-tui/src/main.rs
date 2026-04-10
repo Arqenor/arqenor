@@ -1,4 +1,5 @@
 mod app;
+mod grpc_client;
 mod network;
 mod ui;
 
@@ -106,6 +107,7 @@ async fn run_app<B: ratatui::backend::Backend>(
                 KeyCode::Char('2') => app.switch_tab(Tab::Persistence),
                 KeyCode::Char('3') => app.switch_tab(Tab::Network),
                 KeyCode::Char('4') => app.switch_tab(Tab::Connections),
+                KeyCode::Char('5') => app.switch_tab(Tab::Alerts),
 
                 // Detail panel toggle
                 KeyCode::Enter => {

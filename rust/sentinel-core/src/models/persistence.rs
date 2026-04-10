@@ -16,11 +16,17 @@ pub enum PersistenceKind {
     PrintMonitor,
     LsaProvider,
     NetshHelper,
+    ActiveSetup,
     // Linux
     SystemdUnit,
     Cron,
     RcLocal,
     LdPreload,
+    KernelModule,
+    SshAuthorizedKey,
+    PamModule,
+    ShellProfile,
+    GitHook,
     // macOS
     LaunchDaemon,
     LaunchAgent,

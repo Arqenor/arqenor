@@ -189,12 +189,14 @@ fn draw_tabs(f: &mut Frame, app: &App, area: Rect) {
         format!(" Persistence ({}) ", app.persistence.len()),
         net_label,
         format!(" Connections ({}) ", app.connections.len()),
+        format!(" Alerts ({}) ", app.alerts.len()),
     ];
     let selected = match app.tab {
         Tab::Processes   => 0,
         Tab::Persistence => 1,
         Tab::Network     => 2,
         Tab::Connections => 3,
+        Tab::Alerts      => 4,
     };
     let tabs = Tabs::new(titles)
         .select(selected)
@@ -223,6 +225,7 @@ fn draw_body(f: &mut Frame, app: &mut App, area: Rect) {
         Tab::Persistence => draw_persistence(f, app, area),
         Tab::Network     => draw_network(f, app, area),
         Tab::Connections => draw_connections(f, app, area),
+        Tab::Alerts      => draw_alerts(f, app, area),
     }
 }
 
@@ -872,15 +875,21 @@ fn draw_network(f: &mut Frame, app: &App, area: Rect) {
 // ─── Connections tab ───────────────────────────────────────────────────────────
 
 fn conn_risk_color(c: &sentinel_core::models::connection::ConnectionInfo) -> Option<Color> {
-    use sentinel_core::models::connection::ConnState;
-    let port: u16 = c.local_addr.rsplit(':').next()
-        .and_then(|p| p.trim_end_matches(']').parse().ok())
-        .unwrap_or(0);
+    use sentinel_core::models::connection::{ConnState, ListenRisk, listen_risk_severity, local_port};
+    let port = local_port(c).unwrap_or(0);
+
     if c.state == ConnState::Listen {
-        if matches!(port, 445 | 3389 | 5900 | 23 | 21 | 4444 | 1337) {
-            return Some(C_CRIT);
+        // Use firewall-aware scoring for lateral-movement and risky ports.
+        if let Some(risk) = listen_risk_severity(c) {
+            return match risk {
+                ListenRisk::Critical => Some(C_CRIT),
+                ListenRisk::Low      => Some(C_LOW),
+                ListenRisk::None     => None,
+            };
         }
-        if matches!(port, 135 | 139 | 1433 | 3306 | 5432) {
+        // Ports that are high-risk but not in the lateral-movement set and
+        // don't go through firewall-aware scoring.
+        if matches!(port, 1433 | 3306 | 5432) {
             return Some(C_HIGH);
         }
     }
@@ -891,6 +900,14 @@ fn conn_risk_color(c: &sentinel_core::models::connection::ConnectionInfo) -> Opt
         }
     }
     None
+}
+
+/// Returns a short tag for the firewall column: "[FW]" when blocked, empty otherwise.
+fn firewall_tag(c: &sentinel_core::models::connection::ConnectionInfo) -> &'static str {
+    match c.firewall_blocked {
+        Some(true) => "[FW]",
+        _ => "",
+    }
 }
 
 fn is_external_ip(addr: &str) -> bool {
@@ -926,6 +943,7 @@ fn draw_connections_sidebar(f: &mut Frame, app: &App, area: Rect) {
             || c.remote_addr.as_deref().map(|r| r.starts_with("127.") || r.starts_with("[::1]")).unwrap_or(false)
     }).count();
     let udp         = app.connections.iter().filter(|c| c.proto == P::Udp).count();
+    let fw_blocked  = app.connections.iter().filter(|c| c.firewall_blocked == Some(true)).count();
 
     let lines = vec![
         Line::from(""),
@@ -958,6 +976,11 @@ fn draw_connections_sidebar(f: &mut Frame, app: &App, area: Rect) {
         Line::from(vec![
             Span::styled(format!("  {:>4} ", udp), Style::default().fg(C_MED)),
             Span::styled("UDP", Style::default().fg(C_DIM)),
+        ]),
+        Line::from(vec![
+            Span::styled(format!("  {:>4} ", fw_blocked),
+                Style::default().fg(if fw_blocked > 0 { C_LOW } else { C_DIM })),
+            Span::styled("FW BLOCK", Style::default().fg(C_DIM)),
         ]),
     ];
 
@@ -1021,7 +1044,7 @@ fn draw_connections(f: &mut Frame, app: &mut App, area: Rect) {
         .border_style(Style::default().fg(C_BORDER))
         .title(Span::styled(title_count, Style::default().fg(C_DIM)));
 
-    let header_cells = ["PROTO ", "PID    ", "PROCESS NAME          ", "LOCAL                  ", "REMOTE                 ", "STATE         "]
+    let header_cells = ["PROTO ", "PID    ", "PROCESS NAME          ", "LOCAL                  ", "REMOTE                 ", "STATE         ", "FW  "]
         .iter()
         .map(|h| Cell::from(*h).style(Style::default().fg(C_HEADER).add_modifier(Modifier::BOLD)));
     let header = Row::new(header_cells)
@@ -1068,6 +1091,9 @@ fn draw_connections(f: &mut Frame, app: &mut App, area: Rect) {
             }
         };
 
+        let fw = firewall_tag(c);
+        let fw_color = if fw.is_empty() { C_DIM } else { C_LOW };
+
         Row::new(vec![
             Cell::from(c.proto.to_string()).style(Style::default().fg(proto_color).bg(bg)),
             Cell::from(c.pid.to_string()).style(Style::default().fg(C_DIM).bg(bg)),
@@ -1077,6 +1103,7 @@ fn draw_connections(f: &mut Frame, app: &mut App, area: Rect) {
             Cell::from(local_str).style(Style::default().fg(C_DIM).bg(bg)),
             Cell::from(remote_str).style(Style::default().fg(remote_color).bg(bg)),
             Cell::from(c.state.to_string()).style(Style::default().fg(state_color).bg(bg)),
+            Cell::from(fw).style(Style::default().fg(fw_color).bg(bg)),
         ])
         .height(1)
     }).collect();
@@ -1090,6 +1117,7 @@ fn draw_connections(f: &mut Frame, app: &mut App, area: Rect) {
             Constraint::Length(23), // LOCAL
             Constraint::Length(23), // REMOTE
             Constraint::Length(14), // STATE
+            Constraint::Length(5),  // FW
         ],
     )
     .header(header)
@@ -1155,6 +1183,7 @@ fn draw_statusbar(f: &mut Frame, app: &App, area: Rect) {
                 Span::styled(" Refresh",   Style::default().fg(C_DIM)),
             ]);
         }
+        Tab::Alerts => {}
     }
 
     spans.push(Span::styled(
@@ -1262,6 +1291,182 @@ fn draw_action_menu(f: &mut Frame, app: &App, area: Rect) {
         );
         f.render_widget(popup, popup_area);
     }
+}
+
+// ─── Alerts tab ────────────────────────────────────────────────────────────────
+
+fn draw_alerts(f: &mut Frame, app: &mut App, area: Rect) {
+    let cols = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Length(22), Constraint::Min(0)])
+        .split(area);
+
+    draw_alert_sidebar(f, app, cols[0]);
+    draw_alert_table(f, app, cols[1]);
+}
+
+fn draw_alert_sidebar(f: &mut Frame, app: &App, area: Rect) {
+    let (crit, high, med, low, info) = app.alert_counts();
+    let total = app.alerts.len();
+
+    let lines: Vec<Line> = vec![
+        Line::from(""),
+        Line::from(vec![
+            Span::styled("  ▓ ALERTS", Style::default().fg(C_HEADER).add_modifier(Modifier::BOLD)),
+        ]),
+        Line::from(""),
+        Line::from(vec![
+            Span::styled(
+                format!("  CRIT  {}", crit),
+                if crit > 0 {
+                    Style::default().fg(C_CRIT).add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(C_CRIT)
+                },
+            ),
+        ]),
+        Line::from(vec![
+            Span::styled(
+                format!("  HIGH  {}", high),
+                if high > 0 {
+                    Style::default().fg(C_HIGH).add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(C_HIGH)
+                },
+            ),
+        ]),
+        Line::from(vec![
+            Span::styled(format!("  MED   {}", med), Style::default().fg(C_MED)),
+        ]),
+        Line::from(vec![
+            Span::styled(format!("  LOW   {}", low), Style::default().fg(C_LOW)),
+        ]),
+        Line::from(vec![
+            Span::styled(format!("  INFO  {}", info), Style::default().fg(C_INFO)),
+        ]),
+        Line::from(""),
+        Line::from(vec![
+            Span::styled(format!("  Total  {}", total), Style::default().fg(C_NORMAL)),
+        ]),
+        Line::from(""),
+        Line::from(vec![
+            Span::styled("  ● Live stream", Style::default().fg(C_LOW)),
+        ]),
+    ];
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .border_style(Style::default().fg(C_BORDER));
+
+    f.render_widget(Paragraph::new(lines).block(block), area);
+}
+
+fn draw_alert_table(f: &mut Frame, app: &mut App, area: Rect) {
+    let header_cells = [
+        Cell::from(" SEV    ").style(Style::default().fg(C_HEADER).add_modifier(Modifier::BOLD | Modifier::UNDERLINED)),
+        Cell::from("KIND                ").style(Style::default().fg(C_HEADER).add_modifier(Modifier::BOLD | Modifier::UNDERLINED)),
+        Cell::from("MESSAGE").style(Style::default().fg(C_HEADER).add_modifier(Modifier::BOLD | Modifier::UNDERLINED)),
+        Cell::from("RULE        ").style(Style::default().fg(C_HEADER).add_modifier(Modifier::BOLD | Modifier::UNDERLINED)),
+        Cell::from("TIME      ").style(Style::default().fg(C_HEADER).add_modifier(Modifier::BOLD | Modifier::UNDERLINED)),
+    ];
+    let header = Row::new(header_cells)
+        .height(1)
+        .bottom_margin(1)
+        .style(Style::default().bg(Color::Rgb(15, 25, 40)));
+
+    let selected_idx = app.alert_state.selected().unwrap_or(usize::MAX);
+
+    let rows: Vec<Row> = app
+        .alerts
+        .iter()
+        .enumerate()
+        .map(|(i, alert)| {
+            let is_sel = i == selected_idx;
+            let bg     = if is_sel { C_SELECTED } else { C_BG };
+
+            let sev_color = match alert.sev_ord {
+                5 => C_CRIT,
+                4 => C_HIGH,
+                3 => C_MED,
+                2 => C_LOW,
+                _ => C_INFO,
+            };
+
+            let sev_label = match alert.sev_ord {
+                5 => " CRIT ",
+                4 => " HIGH ",
+                3 => " MED  ",
+                2 => " LOW  ",
+                _ => " INFO ",
+            };
+
+            let kind_display = if alert.kind.chars().count() > 18 {
+                alert.kind.chars().take(18).collect::<String>()
+            } else {
+                alert.kind.clone()
+            };
+
+            let rule_display = if alert.rule_id.is_empty() {
+                "—".to_string()
+            } else if alert.rule_id.chars().count() > 12 {
+                alert.rule_id.chars().take(12).collect::<String>()
+            } else {
+                alert.rule_id.clone()
+            };
+
+            let time_display = alert
+                .occurred_at
+                .with_timezone(&chrono::Local)
+                .format("%H:%M:%S")
+                .to_string();
+
+            Row::new(vec![
+                Cell::from(sev_label).style(
+                    Style::default()
+                        .fg(sev_color)
+                        .add_modifier(if is_sel || alert.sev_ord >= 4 { Modifier::BOLD } else { Modifier::empty() })
+                        .bg(bg),
+                ),
+                Cell::from(kind_display).style(
+                    Style::default()
+                        .fg(if is_sel { Color::White } else { C_NORMAL })
+                        .add_modifier(if is_sel { Modifier::BOLD } else { Modifier::empty() })
+                        .bg(bg),
+                ),
+                Cell::from(alert.message.clone()).style(
+                    Style::default()
+                        .fg(if is_sel { Color::White } else { C_DIM })
+                        .bg(bg),
+                ),
+                Cell::from(rule_display).style(Style::default().fg(C_DIM).bg(bg)),
+                Cell::from(time_display).style(Style::default().fg(C_DIM).bg(bg)),
+            ])
+            .height(1)
+        })
+        .collect();
+
+    let title = format!(" {} alerts ", app.alerts.len());
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .border_style(Style::default().fg(C_BORDER))
+        .title(Span::styled(title, Style::default().fg(C_DIM)));
+
+    let table = Table::new(
+        rows,
+        &[
+            Constraint::Length(8),  // SEV
+            Constraint::Length(20), // KIND
+            Constraint::Min(0),     // MESSAGE
+            Constraint::Length(12), // RULE
+            Constraint::Length(10), // TIME
+        ],
+    )
+    .header(header)
+    .block(block);
+
+    f.render_stateful_widget(table, area, &mut app.alert_state);
 }
 
 fn centered_rect(width_pct: u16, height: u16, area: Rect) -> Rect {

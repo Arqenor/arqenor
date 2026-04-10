@@ -15,7 +15,7 @@ pub struct ProcessInfo {
     pub loaded_modules: Vec<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum ProcessEventKind {
     Created,
     Terminated,

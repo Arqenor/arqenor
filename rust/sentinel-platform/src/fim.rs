@@ -65,13 +65,11 @@ pub fn build_baseline(paths: &[PathBuf]) -> FimBaseline {
                 }
             } else {
                 // Partial walk — iterate tolerating errors
-                for entry in walkdir::WalkDir::new(path).follow_links(false) {
-                    if let Ok(e) = entry {
-                        let p = e.path().to_path_buf();
-                        if p.is_file() {
-                            if let Some(hash) = sha256_file(&p) {
-                                entries.insert(p, hash);
-                            }
+                for e in walkdir::WalkDir::new(path).follow_links(false).into_iter().flatten() {
+                    let p = e.path().to_path_buf();
+                    if p.is_file() {
+                        if let Some(hash) = sha256_file(&p) {
+                            entries.insert(p, hash);
                         }
                     }
                 }
@@ -129,16 +127,14 @@ pub fn check_baseline(baseline: &FimBaseline, watch_paths: &[PathBuf]) -> Vec<Fi
     // --- Scan watch_paths for newly created files not present in baseline ---
     for watch_path in watch_paths {
         if watch_path.is_dir() {
-            for entry in walkdir::WalkDir::new(watch_path).follow_links(false) {
-                if let Ok(e) = entry {
-                    let p = e.path().to_path_buf();
-                    if p.is_file() && !baseline.entries.contains_key(&p) {
-                        alerts.push(FimAlert {
-                            alert:  make_alert(Severity::High, &p, "New file created", "T1036"),
-                            path:   p.clone(),
-                            reason: FimAlertReason::Created,
-                        });
-                    }
+            for e in walkdir::WalkDir::new(watch_path).follow_links(false).into_iter().flatten() {
+                let p = e.path().to_path_buf();
+                if p.is_file() && !baseline.entries.contains_key(&p) {
+                    alerts.push(FimAlert {
+                        alert:  make_alert(Severity::High, &p, "New file created", "T1036"),
+                        path:   p.clone(),
+                        reason: FimAlertReason::Created,
+                    });
                 }
             }
         } else {
@@ -191,6 +187,26 @@ pub fn linux_critical_paths() -> Vec<PathBuf> {
         PathBuf::from("/etc/ssh/sshd_config"),
         PathBuf::from("/bin/su"),
         PathBuf::from("/usr/bin/sudo"),
+    ]
+}
+
+// ---------------------------------------------------------------------------
+// F6 — Critical macOS paths
+// ---------------------------------------------------------------------------
+
+#[cfg(target_os = "macos")]
+pub fn macos_critical_paths() -> Vec<PathBuf> {
+    let home = std::env::var("HOME").unwrap_or_else(|_| "/var/root".to_string());
+    vec![
+        PathBuf::from("/etc/hosts"),
+        PathBuf::from("/etc/sudoers"),
+        PathBuf::from("/etc/pam.d"),
+        PathBuf::from("/etc/ssh/sshd_config"),
+        PathBuf::from("/Library/LaunchDaemons"),
+        PathBuf::from("/Library/LaunchAgents"),
+        PathBuf::from("/Library/Security/SecurityAgentPlugins"),
+        PathBuf::from(format!("{}/Library/LaunchAgents", home)),
+        PathBuf::from("/usr/local/bin"),
     ]
 }
 

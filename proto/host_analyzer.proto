@@ -71,4 +71,5 @@ service HostAnalyzer {
   rpc WatchFilesystem(ScanRequest)              returns (stream FileEvent);
   rpc GetPersistence(google.protobuf.Empty)     returns (PersistenceResponse);
   rpc Health(google.protobuf.Empty)             returns (HealthResponse);
+  rpc WatchAlerts(google.protobuf.Empty)        returns (stream sentinel.common.Alert);
 }

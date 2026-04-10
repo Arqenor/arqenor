@@ -7,6 +7,11 @@ edition = "2021"
 name = "sentinel"
 path = "src/main.rs"
 
+[features]
+default = []
+yara = ["sentinel-platform/yara"]
+kernel-driver = ["sentinel-platform/kernel-driver"]
+
 [dependencies]
 sentinel-core     = { path = "../sentinel-core" }
 sentinel-platform = { path = "../sentinel-platform" }
@@ -17,3 +22,5 @@ anyhow            = { workspace = true }
 tracing           = { workspace = true }
 tracing-subscriber = { workspace = true }
 serde_json        = { workspace = true }
+chrono            = { workspace = true }
+uuid              = { workspace = true }

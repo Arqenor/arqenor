@@ -1,0 +1,43 @@
+[Version]
+Signature="$WINDOWS NT$"
+Class=ActivityMonitor
+ClassGuid={b86dff51-a31e-4bac-b3cf-e8cfe75c9fc2}
+Provider=%ProviderName%
+DriverVer=,
+CatalogFile=sentinel_driver.cat
+
+[DestinationDirs]
+DefaultDestDir=12
+
+[DefaultInstall.NT$ARCH$]
+CopyFiles=SentinelDriver.Files
+AddReg=SentinelDriver.AddReg
+
+[SentinelDriver.Files]
+sentinel_driver.sys
+
+[SentinelDriver.AddReg]
+; SentinelDriver service entry
+HKLM,System\CurrentControlSet\Services\SentinelDriver,DisplayName,,"SENTINEL Kernel Driver"
+HKLM,System\CurrentControlSet\Services\SentinelDriver,Description,,"SENTINEL EDR kernel-level telemetry"
+HKLM,System\CurrentControlSet\Services\SentinelDriver,Start,0x00010001,1
+HKLM,System\CurrentControlSet\Services\SentinelDriver,Type,0x00010001,2
+
+[DefaultInstall.NT$ARCH$.Services]
+AddService=SentinelDriver,0x00000002,SentinelDriver.Service
+
+[SentinelDriver.Service]
+DisplayName   = "SENTINEL Kernel Driver"
+ServiceType   = 2                    ; SERVICE_FILE_SYSTEM_DRIVER
+StartType     = 1                    ; SERVICE_SYSTEM_START
+ErrorControl  = 1
+ServiceBinary = %12%\sentinel_driver.sys
+AddReg        = Minifilter.AddReg
+
+[Minifilter.AddReg]
+HKR,Instances,DefaultInstance,,"SentinelFilter"
+HKR,Instances\SentinelFilter,Altitude,,"370010"
+HKR,Instances\SentinelFilter,Flags,0x00010001,0
+
+[Strings]
+ProviderName = "SENTINEL Security"

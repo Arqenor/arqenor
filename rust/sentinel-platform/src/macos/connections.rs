@@ -106,6 +106,7 @@ fn parse_lsof_line(line: &str) -> Option<ConnectionInfo> {
         local_addr,
         remote_addr,
         state,
+        firewall_blocked: None,
     })
 }
 

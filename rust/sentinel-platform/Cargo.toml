@@ -22,10 +22,21 @@ cfg-if        = "1"
 windows = { workspace = true }
 winreg  = "0.52"
 wmi     = "0.14"
+yara-x  = { version = "1.14", optional = true }
+tokio-stream = { workspace = true, optional = true }
+sentinel-driver-client = { path = "../../sentinel-driver/client", optional = true }
+sentinel-driver-common = { path = "../../sentinel-driver/common", optional = true, features = ["std"] }
+
+[features]
+default = []
+yara = ["yara-x"]
+kernel-driver = ["sentinel-driver-client", "sentinel-driver-common", "tokio-stream"]
+firewall-check = []
 
 [target.'cfg(target_os = "linux")'.dependencies]
 procfs   = "0.16"
 inotify  = "0.10"
 
 [target.'cfg(target_os = "macos")'.dependencies]
-plist    = "1"
+plist        = "1"
+endpoint-sec = "0.5"

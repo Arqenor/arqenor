@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mkdir -p \"C:\\\\Users\\\\Noluc\\\\.claude\\\\skills\\\\rust-expert\\\\references\")",
+      "Bash(mkdir -p \"C:\\\\Users\\\\Noluc\\\\.claude\\\\skills\\\\typescript-expert\\\\references\")",
+      "Bash(mkdir -p \"C:\\\\Users\\\\Noluc\\\\.claude\\\\skills\\\\go-expert\\\\references\")"
+    ]
+  }
+}

@@ -12,6 +12,9 @@ use tokio::sync::mpsc::Sender;
 use uuid::Uuid;
 use walkdir::WalkDir;
 
+use super::esf_dispatcher::EsfDispatcher;
+use super::esf_monitor::EsfRawEvent;
+
 pub struct MacosFsScanner;
 
 impl MacosFsScanner {
@@ -57,8 +60,99 @@ impl FsScanner for MacosFsScanner {
         Ok(FileHash { sha256: encode(Sha256::digest(&bytes)), size })
     }
 
-    async fn watch_path(&self, _root: &Path, _tx: Sender<FileEvent>) -> Result<(), SentinelError> {
-        // TODO Phase 2: kqueue / FSEvents
-        Err(SentinelError::NotSupported)
+    /// Watch `root` for filesystem changes via the macOS Endpoint Security Framework.
+    ///
+    /// Registers a file-event sender with the global `EsfDispatcher` and spawns
+    /// a task that converts raw ESF events into `FileEvent` values, filtering to
+    /// only paths under `root`. The loop exits when the downstream `tx` channel
+    /// is dropped.
+    async fn watch_path(&self, root: &Path, tx: Sender<FileEvent>) -> Result<(), SentinelError> {
+        let (esf_tx, mut esf_rx) = tokio::sync::mpsc::channel::<EsfRawEvent>(2048);
+
+        {
+            let dispatcher = EsfDispatcher::global();
+            let mut guard = dispatcher.lock().map_err(|e| {
+                SentinelError::Platform(format!("EsfDispatcher lock poisoned: {e}"))
+            })?;
+            guard.set_file_sender(esf_tx);
+            guard.start();
+        }
+
+        let root_prefix = root.to_string_lossy().into_owned();
+
+        tokio::spawn(async move {
+            while let Some(raw) = esf_rx.recv().await {
+                let file_event = match raw {
+                    EsfRawEvent::FileCreate { ref path, .. } if path.starts_with(&root_prefix) => {
+                        FileEvent {
+                            id:         Uuid::new_v4(),
+                            kind:       FileEventKind::Created,
+                            path:       path.clone(),
+                            sha256:     None,
+                            size:       None,
+                            event_time: Utc::now(),
+                        }
+                    }
+                    EsfRawEvent::FileWrite { ref path, .. } if path.starts_with(&root_prefix) => {
+                        FileEvent {
+                            id:         Uuid::new_v4(),
+                            kind:       FileEventKind::Modified,
+                            path:       path.clone(),
+                            sha256:     None,
+                            size:       None,
+                            event_time: Utc::now(),
+                        }
+                    }
+                    EsfRawEvent::FileDelete { ref path, .. } if path.starts_with(&root_prefix) => {
+                        FileEvent {
+                            id:         Uuid::new_v4(),
+                            kind:       FileEventKind::Deleted,
+                            path:       path.clone(),
+                            sha256:     None,
+                            size:       None,
+                            event_time: Utc::now(),
+                        }
+                    }
+                    EsfRawEvent::FileRename { ref new_path, .. } if new_path.starts_with(&root_prefix) => {
+                        FileEvent {
+                            id:         Uuid::new_v4(),
+                            kind:       FileEventKind::Renamed,
+                            path:       new_path.clone(),
+                            sha256:     None,
+                            size:       None,
+                            event_time: Utc::now(),
+                        }
+                    }
+                    EsfRawEvent::FileChmod { ref path, .. } if path.starts_with(&root_prefix) => {
+                        FileEvent {
+                            id:         Uuid::new_v4(),
+                            kind:       FileEventKind::Modified,
+                            path:       path.clone(),
+                            sha256:     None,
+                            size:       None,
+                            event_time: Utc::now(),
+                        }
+                    }
+                    EsfRawEvent::FileChown { ref path, .. } if path.starts_with(&root_prefix) => {
+                        FileEvent {
+                            id:         Uuid::new_v4(),
+                            kind:       FileEventKind::Modified,
+                            path:       path.clone(),
+                            sha256:     None,
+                            size:       None,
+                            event_time: Utc::now(),
+                        }
+                    }
+                    // Non-file variants or paths outside the watched root.
+                    _ => continue,
+                };
+
+                if tx.send(file_event).await.is_err() {
+                    break;
+                }
+            }
+        });
+
+        Ok(())
     }
 }

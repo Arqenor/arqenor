@@ -92,7 +92,31 @@ Client receives typed stream / response
 
 ---
 
-## Data Flow — Alerts
+## Data Flow — Real-time Detection Pipeline
+
+```
+ProcessWatch ─────► proc_tx ───┐
+  Win: EvtSubscribe 4688/4689  │
+  Linux: /proc poll 500ms      │
+  macOS: ESF NOTIFY_EXEC/EXIT  │
+                               │
+FIM Watch ────────► fim_tx ────┤
+  Win: ReadDirectoryChangesW   │   ┌───────────────────────────────────────┐
+  Linux: inotify               ├──►│        DetectionPipeline              │
+  macOS: ESF NOTIFY_CREATE/... │   │  tokio::select! on 3 rx + 60s timer  │
+                               │   │  • 15 LOLBin process rules            │
+ConnWatch ────────► conn_tx ───┘   │  • 9 file-path rules                  │
+  Win: GetExtendedTcpTable         │  • C2 beaconing (CV scoring / 60s)    │
+  Linux: /proc/net/tcp poll        │  • DNS tunneling + DGA (periodic)     │
+  macOS: lsof                      └──────────────┬────────────────────────┘
+                                                  │ Alert
+                                   ┌──────────────┴──────────────┐
+                                   ▼                              ▼
+                           stdout / TUI                   sentinel-store
+                                                       insert_alert(SQLite)
+```
+
+## Data Flow — Alerts (legacy / gRPC path)
 
 ```
 Any detector (platform impl)
@@ -144,6 +168,15 @@ External client or TUI
 ## Thread / Task Model
 
 ```
+sentinel-cli watch process
+├── Tokio runtime (multi-thread)
+│   ├── ProcessMonitor::watch() → proc_tx (spawn_blocking on Win, spawn on Linux)
+│   ├── FsScanner::watch_path() → fim_tx (spawn_blocking)
+│   ├── DetectionPipeline::run() — select! on proc_rx + file_rx → alert_tx
+│   ├── Stats ticker task (60s interval)
+│   └── Alert consumer loop (print + forward to db_tx)
+├── std::thread — DB writer (SqliteStore::insert_alert in blocking loop)
+│
 sentinel-grpc process
 ├── Tokio runtime (multi-thread)
 │   ├── tonic gRPC listener task

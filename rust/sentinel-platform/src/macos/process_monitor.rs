@@ -1,11 +1,16 @@
 use async_trait::async_trait;
+use chrono::Utc;
 use sentinel_core::{
     error::SentinelError,
-    models::process::{ProcessEvent, ProcessInfo},
+    models::process::{ProcessEvent, ProcessEventKind, ProcessInfo},
     traits::process_monitor::ProcessMonitor,
 };
 use sysinfo::{ProcessRefreshKind, RefreshKind, System};
 use tokio::sync::mpsc::Sender;
+use uuid::Uuid;
+
+use super::esf_dispatcher::EsfDispatcher;
+use super::esf_monitor::EsfRawEvent;
 
 pub struct MacosProcessMonitor;
 
@@ -35,6 +40,42 @@ fn build_process_info(p: &sysinfo::Process) -> ProcessInfo {
     }
 }
 
+/// Build a minimal ProcessInfo from ESF exec data.
+fn esf_exec_process_info(pid: u32, ppid: u32, path: String, args: Vec<String>) -> ProcessInfo {
+    let name = path
+        .rsplit('/')
+        .next()
+        .unwrap_or(&path)
+        .to_string();
+
+    ProcessInfo {
+        pid,
+        ppid,
+        name,
+        exe_path:       Some(path),
+        cmdline:        Some(args.join(" ")),
+        user:           None,
+        sha256:         None,
+        started_at:     None,
+        loaded_modules: vec![],
+    }
+}
+
+/// Minimal stub for a PID that has exited (termination event).
+fn stub_process_info(pid: u32) -> ProcessInfo {
+    ProcessInfo {
+        pid,
+        ppid:           0,
+        name:           String::new(),
+        exe_path:       None,
+        cmdline:        None,
+        user:           None,
+        sha256:         None,
+        started_at:     None,
+        loaded_modules: vec![],
+    }
+}
+
 #[async_trait]
 impl ProcessMonitor for MacosProcessMonitor {
     async fn snapshot(&self) -> Result<Vec<ProcessInfo>, SentinelError> {
@@ -45,9 +86,55 @@ impl ProcessMonitor for MacosProcessMonitor {
         Ok(sys.processes().values().map(build_process_info).collect())
     }
 
-    async fn watch(&self, _tx: Sender<ProcessEvent>) -> Result<(), SentinelError> {
-        // TODO Phase 2: EndpointSecurity framework via endpoint-sec crate
-        Err(SentinelError::NotSupported)
+    /// Stream live process events via the macOS Endpoint Security Framework.
+    ///
+    /// Registers a process-event sender with the global `EsfDispatcher` and
+    /// spawns a task that converts raw ESF events into `ProcessEvent` values.
+    /// The loop exits when the downstream `tx` channel is dropped.
+    async fn watch(&self, tx: Sender<ProcessEvent>) -> Result<(), SentinelError> {
+        let (esf_tx, mut esf_rx) = tokio::sync::mpsc::channel::<EsfRawEvent>(2048);
+
+        {
+            let dispatcher = EsfDispatcher::global();
+            let mut guard = dispatcher.lock().map_err(|e| {
+                SentinelError::Platform(format!("EsfDispatcher lock poisoned: {e}"))
+            })?;
+            guard.set_process_sender(esf_tx);
+            guard.start();
+        }
+
+        tokio::spawn(async move {
+            while let Some(raw) = esf_rx.recv().await {
+                let event = match raw {
+                    EsfRawEvent::ProcessExec { pid, ppid, path, args, .. } => {
+                        ProcessEvent {
+                            id:         Uuid::new_v4(),
+                            kind:       ProcessEventKind::Created,
+                            process:    esf_exec_process_info(pid, ppid, path, args),
+                            event_time: Utc::now(),
+                        }
+                    }
+                    EsfRawEvent::ProcessExit { pid } => {
+                        ProcessEvent {
+                            id:         Uuid::new_v4(),
+                            kind:       ProcessEventKind::Terminated,
+                            process:    stub_process_info(pid),
+                            event_time: Utc::now(),
+                        }
+                    }
+                    // ProcessFork is redundant — we will receive the exec event
+                    // for the child process. All other variants are not
+                    // process-related.
+                    _ => continue,
+                };
+
+                if tx.send(event).await.is_err() {
+                    break;
+                }
+            }
+        });
+
+        Ok(())
     }
 
     async fn enrich(&self, pid: u32) -> Result<ProcessInfo, SentinelError> {

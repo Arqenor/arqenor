@@ -5,7 +5,7 @@ use sentinel_core::models::{connection::ConnectionInfo, persistence::Persistence
 use sentinel_platform::{new_connection_monitor, new_persistence_detector, new_process_monitor};
 use std::collections::HashSet;
 use std::time::{Duration, Instant};
-use tokio::sync::mpsc::Receiver;
+use tokio::sync::mpsc::{self, Receiver};
 
 const NET_RESCAN_INTERVAL: Duration = Duration::from_secs(300); // 5 min
 
@@ -25,6 +25,7 @@ pub enum Tab {
     Persistence,
     Network,
     Connections,
+    Alerts,
 }
 
 impl Tab {
@@ -33,15 +34,17 @@ impl Tab {
             Self::Processes   => Self::Persistence,
             Self::Persistence => Self::Network,
             Self::Network     => Self::Connections,
-            Self::Connections => Self::Processes,
+            Self::Connections => Self::Alerts,
+            Self::Alerts      => Self::Processes,
         }
     }
     pub fn prev(self) -> Self {
         match self {
-            Self::Processes   => Self::Connections,
+            Self::Processes   => Self::Alerts,
             Self::Persistence => Self::Processes,
             Self::Network     => Self::Persistence,
             Self::Connections => Self::Network,
+            Self::Alerts      => Self::Connections,
         }
     }
 }
@@ -78,6 +81,47 @@ pub struct ProcessRow {
     pub score:   u8,
     #[allow(dead_code)]
     pub factors: Vec<ScoreFactor>,
+}
+
+// ─── Alert row ─────────────────────────────────────────────────────────────────
+
+#[derive(Clone)]
+#[allow(dead_code)]
+pub struct AlertRow {
+    pub id:          String,
+    pub severity:    String,   // "CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"
+    pub sev_ord:     u8,       // 5=crit…1=info, for sorting
+    pub kind:        String,
+    pub message:     String,
+    pub occurred_at: chrono::DateTime<chrono::Utc>,
+    pub rule_id:     String,
+    pub attack_id:   String,
+}
+
+impl AlertRow {
+    fn from_proto(a: crate::grpc_client::ProtoAlert) -> Self {
+        let (severity, sev_ord) = match a.severity {
+            5 => ("CRITICAL", 5u8),
+            4 => ("HIGH",     4),
+            3 => ("MEDIUM",   3),
+            2 => ("LOW",      2),
+            1 => ("INFO",     1),
+            _ => ("UNKNOWN",  0),
+        };
+        let occurred_at = a.occurred_at
+            .and_then(|ts| chrono::DateTime::from_timestamp(ts.seconds, ts.nanos as u32))
+            .unwrap_or_else(chrono::Utc::now);
+        Self {
+            id:          a.id,
+            severity:    severity.to_string(),
+            sev_ord,
+            kind:        a.kind,
+            message:     a.message,
+            occurred_at,
+            rule_id:     a.rule_id,
+            attack_id:   a.attack_id,
+        }
+    }
 }
 
 // ─── Network state ─────────────────────────────────────────────────────────────
@@ -359,12 +403,19 @@ pub struct App {
     pub action_result: Option<String>, // feedback message shown after action
     pub tree_mode:     bool,
     pub hide_loopback: bool,
+    pub alerts:        Vec<AlertRow>,
+    pub alert_state:   TableState,
+    pub alert_rx:      mpsc::Receiver<crate::grpc_client::ProtoAlert>,
 }
 
 impl App {
     pub async fn new() -> Result<Self> {
         let mut proc_state = TableState::default();
         proc_state.select(Some(0));
+
+        let (alert_tx, alert_rx) = mpsc::channel(256);
+        tokio::spawn(crate::grpc_client::stream_alerts(alert_tx));
+
         let mut app = Self {
             tab:           Tab::Processes,
             processes:     vec![],
@@ -387,6 +438,9 @@ impl App {
             action_result: None,
             tree_mode:     false,
             hide_loopback: false,
+            alerts:        vec![],
+            alert_state:   TableState::default(),
+            alert_rx,
         };
         app.refresh().await?;
         Ok(app)
@@ -418,6 +472,7 @@ impl App {
 
         let conn_monitor = new_connection_monitor();
         self.connections = conn_monitor.snapshot().await.unwrap_or_default();
+        sentinel_platform::enrich_firewall_status(&mut self.connections);
 
         // Drop IPv6 LISTEN entries that have an IPv4 counterpart (same pid+port)
         // e.g. keep 0.0.0.0:445 and drop [::]:445 for the same PID
@@ -453,6 +508,14 @@ impl App {
     }
 
     pub fn tick(&mut self) {
+        // Drain incoming alerts (cap at 500, newest first)
+        while let Ok(proto) = self.alert_rx.try_recv() {
+            let row = AlertRow::from_proto(proto);
+            self.alerts.insert(0, row);
+            if self.alerts.len() > 500 {
+                self.alerts.pop();
+            }
+        }
         // Always poll the network channel (results come in even when on another tab)
         self.net.poll();
         // Auto-start / auto-rescan
@@ -714,6 +777,7 @@ impl App {
             Tab::Persistence => self.persistence.len(),
             Tab::Network     => self.net.hosts.len(),
             Tab::Connections => self.filtered_connections().len(),
+            Tab::Alerts      => self.alerts.len(),
         }
     }
 
@@ -724,6 +788,7 @@ impl App {
             match self.tab {
                 Tab::Processes   => self.proc_state.select(Some(self.selected)),
                 Tab::Connections => self.conn_state.select(Some(self.selected)),
+                Tab::Alerts      => self.alert_state.select(Some(self.selected)),
                 _ => {}
             }
         }
@@ -733,6 +798,7 @@ impl App {
         match self.tab {
             Tab::Processes   => self.proc_state.select(Some(self.selected)),
             Tab::Connections => self.conn_state.select(Some(self.selected)),
+            Tab::Alerts      => self.alert_state.select(Some(self.selected)),
             _ => {}
         }
     }
@@ -741,5 +807,15 @@ impl App {
         self.selected = 0;
         self.conn_state.select(Some(0));
         self.proc_state.select(Some(0));
+        self.alert_state.select(Some(0));
+    }
+
+    pub fn alert_counts(&self) -> (usize, usize, usize, usize, usize) {
+        let crit = self.alerts.iter().filter(|a| a.sev_ord == 5).count();
+        let high = self.alerts.iter().filter(|a| a.sev_ord == 4).count();
+        let med  = self.alerts.iter().filter(|a| a.sev_ord == 3).count();
+        let low  = self.alerts.iter().filter(|a| a.sev_ord == 2).count();
+        let info = self.alerts.iter().filter(|a| a.sev_ord == 1).count();
+        (crit, high, med, low, info)
     }
 }

@@ -9,9 +9,10 @@ import (
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/protobuf/types/known/emptypb"
 
-	// Generated stubs will be in ./generated after running scripts/gen-proto.ps1
-	// pb "sentinel/go/internal/grpc/generated"
+	pb "sentinel/go/internal/grpc/generated"
+	"sentinel/go/internal/store"
 )
 
 const defaultHostAnalyzerAddr = "127.0.0.1:50051"
@@ -19,14 +20,15 @@ const defaultHostAnalyzerAddr = "127.0.0.1:50051"
 // HostAnalyzerClient wraps the gRPC connection to the Rust host analyzer.
 type HostAnalyzerClient struct {
 	conn   *grpc.ClientConn
+	svc    pb.HostAnalyzerClient
 	logger *zap.Logger
-	// svc    pb.HostAnalyzerClient  // uncomment after proto codegen
 }
 
 func NewHostAnalyzerClient(logger *zap.Logger) (*HostAnalyzerClient, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
+	//nolint:staticcheck // grpc.DialContext deprecated in newer gRPC but kept for compatibility
 	conn, err := grpc.DialContext(
 		ctx,
 		defaultHostAnalyzerAddr,
@@ -41,8 +43,8 @@ func NewHostAnalyzerClient(logger *zap.Logger) (*HostAnalyzerClient, error) {
 
 	return &HostAnalyzerClient{
 		conn:   conn,
+		svc:    pb.NewHostAnalyzerClient(conn),
 		logger: logger,
-		// svc: pb.NewHostAnalyzerClient(conn),
 	}, nil
 }
 
@@ -50,14 +52,50 @@ func (c *HostAnalyzerClient) Close() error {
 	return c.conn.Close()
 }
 
-// ProcessSnapshot calls GetProcessSnapshot and returns raw JSON bytes for now.
-// Replace with typed proto response once codegen runs.
+// WatchAlerts subscribes to the real-time alert stream from the Rust detection
+// pipeline.  For each received alert, onAlert is called synchronously.
+// Returns when the stream ends or ctx is cancelled.
+func (c *HostAnalyzerClient) WatchAlerts(ctx context.Context, onAlert func(store.Alert)) error {
+	stream, err := c.svc.WatchAlerts(ctx, &emptypb.Empty{})
+	if err != nil {
+		return fmt.Errorf("open WatchAlerts stream: %w", err)
+	}
+
+	for {
+		msg, err := stream.Recv()
+		if err != nil {
+			if err == io.EOF || ctx.Err() != nil {
+				return nil
+			}
+			return fmt.Errorf("recv alert: %w", err)
+		}
+
+		var occurredAt time.Time
+		if ts := msg.GetOccurredAt(); ts != nil {
+			occurredAt = time.Unix(ts.GetSeconds(), int64(ts.GetNanos())).UTC()
+		} else {
+			occurredAt = time.Now().UTC()
+		}
+
+		alert := store.Alert{
+			ID:         msg.GetId(),
+			Severity:   msg.GetSeverity().String(),
+			Kind:       msg.GetKind(),
+			Message:    msg.GetMessage(),
+			OccurredAt: occurredAt,
+			RuleID:     msg.GetRuleId(),
+			AttackID:   msg.GetAttackId(),
+		}
+		onAlert(alert)
+	}
+}
+
+// ProcessSnapshot calls GetProcessSnapshot (legacy placeholder kept for reference).
 func (c *HostAnalyzerClient) ProcessSnapshot(ctx context.Context) error {
-	// TODO: uncomment after proto codegen
-	// resp, err := c.svc.GetProcessSnapshot(ctx, &emptypb.Empty{})
-	// if err != nil { return err }
-	// c.logger.Info("process snapshot", zap.Int("count", len(resp.Processes)))
-	c.logger.Info("ProcessSnapshot: proto codegen pending")
-	_ = io.EOF // suppress unused import
+	resp, err := c.svc.GetProcessSnapshot(ctx, &emptypb.Empty{})
+	if err != nil {
+		return fmt.Errorf("process snapshot: %w", err)
+	}
+	c.logger.Info("process snapshot", zap.Int("count", len(resp.GetProcesses())))
 	return nil
 }
