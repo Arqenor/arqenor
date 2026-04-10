@@ -5,12 +5,15 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 
 	"go.uber.org/zap"
 
 	"sentinel/go/internal/api"
 	grpcclient "sentinel/go/internal/grpc"
+	"sentinel/go/internal/scanner"
+	"sentinel/go/internal/store"
 )
 
 func main() {
@@ -31,8 +34,21 @@ func main() {
 		defer client.Close()
 	}
 
-	// Start REST API
-	router := api.NewServer(logger)
+	dbPath := filepath.Join("data", "sentinel.db")
+	if err := os.MkdirAll(filepath.Dir(dbPath), 0o755); err != nil {
+		logger.Fatal("create data dir", zap.String("path", filepath.Dir(dbPath)), zap.Error(err))
+	}
+
+	st, err := store.Open(dbPath)
+	if err != nil {
+		logger.Fatal("open store", zap.String("path", dbPath), zap.Error(err))
+	}
+	defer st.Close()
+
+	sc := scanner.New(logger)
+
+	// Start REST API.
+	router := api.NewServer(logger, sc, st)
 	ln, err := net.Listen("tcp", ":8080")
 	if err != nil {
 		logger.Fatal("listen :8080", zap.Error(err))

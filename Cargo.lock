@@ -3705,6 +3705,7 @@ dependencies = [
  "sha2",
  "thiserror 1.0.69",
  "tokio",
+ "tracing",
  "uuid",
 ]
 
@@ -3713,6 +3714,7 @@ name = "sentinel-desktop"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "chrono",
  "dns-lookup",
  "if-addrs",
  "sentinel-core",
@@ -3724,6 +3726,7 @@ dependencies = [
  "tauri-plugin-shell",
  "tokio",
  "tracing",
+ "uuid",
 ]
 
 [[package]]

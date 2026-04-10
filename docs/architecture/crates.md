@@ -35,18 +35,36 @@ pub enum SentinelError {
 
 | Module | Types |
 |---|---|
-| `models/process.rs` | `ProcessInfo` (pid, ppid, name, exe_path, cmdline, user, sha256, loaded_modules) · `ProcessEvent` (Created / Terminated / Modified) |
-| `models/persistence.rs` | `PersistenceKind` enum: RegistryRun, ScheduledTask, WindowsService, SystemdUnit, Cron, RcLocal, LdPreload, LaunchDaemon, LaunchAgent, StartupFolder |
+| `models/process.rs` | `ProcessInfo` (pid, ppid, name, exe_path, cmdline, user, sha256, loaded_modules) · `ProcessEvent` (Created / Terminated / Modified) · `ProcessScore`, `ScoreFactor` |
+| `models/persistence.rs` | `PersistenceKind` enum: RegistryRun, ScheduledTask, WindowsService, WmiSubscription, ComHijacking, DllSideloading, BitsJob, AppInitDll, IfeoHijack, AccessibilityHijack, PrintMonitor, LsaProvider, NetshHelper, ActiveSetup, SystemdUnit, Cron, RcLocal, LdPreload, KernelModule, SshAuthorizedKey, PamModule, ShellProfile, GitHook, LaunchDaemon, LaunchAgent, StartupFolder |
 | `models/file_event.rs` | `FileEvent` — kind (Created / Modified / Deleted / Renamed), path, hash, size |
-| `models/alert.rs` | `Alert` — id, severity, kind, message, timestamp, metadata |
+| `models/alert.rs` | `Alert` — id, severity, kind, message, timestamp, metadata, rule_id, attack_id |
+
+### Rules engine (`rules/`)
+
+| Module | Purpose |
+|---|---|
+| `rules/mod.rs` | `DetectionRule`, `RuleCondition` (ProcessCreate / ProcessName), `Pattern` glob matcher |
+| `rules/engine.rs` | `evaluate(rule, event) -> Option<Alert>`, `evaluate_all(rules, event) -> Vec<Alert>` |
+| `rules/lolbin.rs` | 15 built-in LOLBin rules (SENT-1001 to SENT-1015) |
+
+### Detection pipeline (`pipeline.rs`)
+
+| Type | Purpose |
+|---|---|
+| `DetectionPipeline` | `tokio::select!` loop consuming `ProcessEvent` + `FileEvent` streams, evaluating process rules + 9 file-path `SensitivePathRule`s, emitting `Alert`s |
+| `PipelineConfig` | Holds process rules + sensitive path rules (default loads all built-in rules) |
+| `PipelineStats` | Atomic counters: process_events, file_events, alerts_fired |
+| `DetectionEngine` | Legacy convenience builder (spawns pipeline, returns stats handle) |
 
 ### Traits
 
 | Trait | Methods |
 |---|---|
-| `ProcessMonitor` | `async fn snapshot() -> Vec<ProcessInfo>` · `async fn watch() -> Stream<ProcessEvent>` · `async fn enrich(ProcessInfo) -> ProcessInfo` |
-| `PersistenceDetector` | `async fn detect() -> Vec<PersistenceEntry>` |
-| `FsScanner` | `async fn scan(root, opts) -> Stream<FileEvent>` · `async fn watch(root) -> Stream<FileEvent>` |
+| `ProcessMonitor` | `async fn snapshot() -> Vec<ProcessInfo>` · `async fn watch(Sender<ProcessEvent>)` · `async fn enrich(pid) -> ProcessInfo` |
+| `PersistenceDetector` | `async fn detect() -> Vec<PersistenceEntry>` · `async fn diff_baseline(&[PersistenceEntry]) -> Vec<PersistenceEntry>` |
+| `FsScanner` | `async fn scan_path(root, config) -> Vec<FileEvent>` · `async fn hash_file(path) -> FileHash` · `async fn watch_path(root, Sender<FileEvent>)` |
+| `ConnectionMonitor` | `async fn snapshot() -> Vec<ConnectionInfo>` |
 
 ---
 
@@ -70,12 +88,13 @@ These are the only entry points. Callers never import platform sub-modules direc
 
 | Feature | Windows | Linux | macOS |
 |---|---|---|---|
-| Process snapshot | `sysinfo` | `procfs` | `sysinfo` |
-| Process events | placeholder (ETW Phase 2) | `inotify` on `/proc` | placeholder |
-| Filesystem watch | planned | `inotify` | planned |
-| Persistence — system | Registry Run/RunOnce, Services | systemd units, rc.local | LaunchDaemon (`/Library/LaunchDaemons`) |
-| Persistence — user | HKCU Run keys, Startup folder | cron, LD_PRELOAD | LaunchAgent (`~/Library/LaunchAgents`) |
-| Extra deps | `winreg`, `wmi`, `windows` | `procfs`, `inotify` | `plist` |
+| Process snapshot | `sysinfo` | `sysinfo` | `sysinfo` |
+| Process events | EvtSubscribe (Security 4688/4689) | /proc poll (500ms HashSet diff) | placeholder |
+| Filesystem watch | `ReadDirectoryChangesW` | `inotify` | planned |
+| Persistence — system | Registry Run/RunOnce, Services, WMI, COM, BITS, AppInit, IFEO, PrintMon, LSA, Netsh, ActiveSetup | systemd units, cron, LD_PRELOAD, kernel modules, PAM modules, shell profiles, git hooks | LaunchDaemon |
+| Persistence — user | HKCU Run keys, Startup folder, Accessibility hijack | SSH authorized_keys, user shell profiles | LaunchAgent |
+| Process enrichment | `CreateToolhelp32Snapshot` (loaded DLLs) | `/proc/<pid>/maps` (shared libs) | planned |
+| Extra deps | `windows-rs 0.52`, `winreg` | `inotify 0.10`, `sysinfo` | `plist` |
 
 ### Adding a new platform
 
@@ -144,9 +163,13 @@ sentinel-grpc/
 | Table | Purpose | Key columns |
 |---|---|---|
 | `config` | Key-value store | `key TEXT PK`, `value TEXT` |
-| `alerts` | Alert history | `id`, `severity`, `kind`, `message`, `timestamp`, `metadata JSON` |
+| `alerts` | Alert history | `id`, `severity`, `kind`, `message`, `occurred_at`, `metadata JSON`, `rule_id`, `attack_id` |
 | `rules` | Detection rules | `id`, `kind`, `expression TEXT`, `enabled BOOL` |
-| `persistence_baseline` | Drift detection baseline | `kind`, `name`, `command`, `location`, `first_seen` |
+| `persistence_baseline` | Drift detection baseline | `kind`, `name`, `command`, `location`, `captured_at` |
+| `process_events` | Real-time process event log | `id`, `kind`, `pid`, `ppid`, `name`, `exe_path`, `cmdline`, `event_time` |
+| `file_events` | Real-time file event log | `id`, `kind`, `path`, `sha256`, `size`, `event_time` |
+
+Indexes: `idx_alerts_time`, `idx_proc_evt_time`, `idx_file_evt_time`.
 
 ### Public API
 
@@ -156,11 +179,12 @@ pub struct SqliteStore { /* ... */ }
 impl SqliteStore {
     pub fn open(path: &Path) -> Result<Self>
     pub fn insert_alert(&self, alert: &Alert) -> Result<()>
-    pub fn list_alerts(&self, min_severity: Severity) -> Result<Vec<Alert>>
+    pub fn insert_process_event(&self, evt: &ProcessEvent) -> Result<()>
+    pub fn insert_file_event(&self, evt: &FileEvent) -> Result<()>
+    pub fn list_alerts(&self, limit: usize) -> Result<Vec<Alert>>
+    pub fn alert_counts_by_severity(&self) -> Result<Vec<(String, u64)>>
     pub fn get_config(&self, key: &str) -> Result<Option<String>>
     pub fn set_config(&self, key: &str, value: &str) -> Result<()>
-    pub fn upsert_baseline(&self, entries: &[PersistenceEntry]) -> Result<()>
-    pub fn diff_baseline(&self, current: &[PersistenceEntry]) -> Result<Vec<PersistenceEntry>>
 }
 ```
 

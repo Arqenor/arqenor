@@ -92,7 +92,30 @@ Client receives typed stream / response
 
 ---
 
-## Data Flow — Alerts
+## Data Flow — Real-time Detection Pipeline
+
+```
+sentinel-platform::new_process_monitor().watch(proc_tx)
+   │ ProcessEvent (Created / Terminated)
+   ▼
+   ┌──────────────────────────────────────────────┐
+   │          DetectionPipeline                    │
+   │  tokio::select! on process_rx + file_rx      │
+   │  • 15 LOLBin process rules (SENT-1001..1015) │
+   │  • 9 file-path rules (SENT-F001..F014)       │
+   └──────────────────┬───────────────────────────┘
+                      │ Alert
+sentinel-platform::new_fs_scanner().watch_path(fim_tx)
+   │ FileEvent (Created / Modified / Deleted)
+   └──▶ same pipeline ──▶ alert_tx
+                                 │
+                    ┌────────────┴────────────┐
+                    ▼                         ▼
+            stdout / TUI              sentinel-store
+                                    insert_alert(SQLite)
+```
+
+## Data Flow — Alerts (legacy / gRPC path)
 
 ```
 Any detector (platform impl)
@@ -144,6 +167,15 @@ External client or TUI
 ## Thread / Task Model
 
 ```
+sentinel-cli watch process
+├── Tokio runtime (multi-thread)
+│   ├── ProcessMonitor::watch() → proc_tx (spawn_blocking on Win, spawn on Linux)
+│   ├── FsScanner::watch_path() → fim_tx (spawn_blocking)
+│   ├── DetectionPipeline::run() — select! on proc_rx + file_rx → alert_tx
+│   ├── Stats ticker task (60s interval)
+│   └── Alert consumer loop (print + forward to db_tx)
+├── std::thread — DB writer (SqliteStore::insert_alert in blocking loop)
+│
 sentinel-grpc process
 ├── Tokio runtime (multi-thread)
 │   ├── tonic gRPC listener task

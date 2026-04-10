@@ -71,6 +71,36 @@ pub fn new_cred_guard() -> windows::cred_guard::CredGuard {
     windows::cred_guard::CredGuard::new()
 }
 
+/// Create an [`EtwMonitor`] wired to an existing ETW event receiver.
+///
+/// Spawn the returned monitor on a dedicated thread:
+/// ```rust,ignore
+/// let (consumer, event_rx) = new_etw_consumer()?;
+/// let monitor = new_etw_monitor(event_rx);
+/// std::thread::spawn(move || monitor.run_blocking(alert_tx));
+/// ```
+#[cfg(target_os = "windows")]
+pub fn new_etw_monitor(
+    event_rx: std::sync::mpsc::Receiver<windows::etw_consumer::EtwEvent>,
+) -> windows::etw_monitor::EtwMonitor {
+    windows::etw_monitor::EtwMonitor::new(event_rx)
+}
+
+/// Start a Windows ETW real-time consumer session.
+///
+/// Returns `(EtwConsumer, Receiver<EtwEvent>)` on success.  Requires
+/// Administrator rights or `SeSystemProfilePrivilege`.
+#[cfg(target_os = "windows")]
+pub fn new_etw_consumer() -> Result<
+    (
+        windows::etw_consumer::EtwConsumer,
+        std::sync::mpsc::Receiver<windows::etw_consumer::EtwEvent>,
+    ),
+    sentinel_core::error::SentinelError,
+> {
+    windows::etw_consumer::EtwConsumer::start()
+}
+
 pub fn new_fim_monitor() -> fim::FimMonitor {
     #[cfg(target_os = "windows")]
     let paths = fim::windows_critical_paths();

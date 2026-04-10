@@ -1,5 +1,5 @@
 # SENTINEL — Complete Product Roadmap
-> Last updated: 2026-04-08 | Based on 2025-2026 threat intelligence
+> Last updated: 2026-04-10 | Based on 2025-2026 threat intelligence
 
 ---
 
@@ -27,9 +27,16 @@ Cloud intelligence + fleet management + MDR → paid tiers.
 | Desktop app (Tauri v2 + React) | ✅ Done | Tauri v2, Tailwind v4 |
 | Network anomaly detection (baseline diff) | ✅ Done | In-memory HashMap |
 | Hostname resolution (reverse DNS) | ✅ Done | dns-lookup crate |
+| Detection engine + LOLBin rules (15 rules) | ✅ Done | sentinel-core rules engine |
+| Extended persistence Win (B1-B9) + Linux (C1-C7) | ✅ Done | Registry, systemd, PAM, SSH, git hooks |
+| File Integrity Monitoring (baseline + real-time) | ✅ Done | ReadDirectoryChangesW / inotify |
+| Credential theft detection (E1-E6) | ✅ Done | LSASS scan, AMSI bypass, ransomware signals |
+| ETW consumer (6 providers, 7 rules) | ✅ Done | windows-rs EvtSubscribe / StartTrace |
+| Real-time process watch (Win + Linux) | ✅ Done | EvtSubscribe 4688/4689, /proc poll |
+| Real-time detection pipeline | ✅ Done | tokio::select! process + file rules → alerts → SQLite |
 
-**Coverage today:** ~12 ATT&CK techniques across TA0003 (Persistence) and basic TA0007 (Discovery).  
-**Gap vs commercial EDR:** No kernel telemetry, no memory scanning, no behavioral ML, no ETW.
+**Coverage today:** ~60 ATT&CK techniques across TA0002-TA0006 (Execution, Persistence, Priv Esc, Defense Evasion, Credential Access).
+**Gap vs commercial EDR:** No kernel driver (ETW-TI), no eBPF probes, no behavioral ML, no memory forensics.
 
 ---
 

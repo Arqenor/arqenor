@@ -87,6 +87,21 @@ export interface Alert {
   attack_id: string | null
 }
 
+// ── ETW Stream ────────────────────────────────────────────────────────────────
+
+export interface EtwEvent {
+  provider_label: string
+  provider_guid:  string
+  event_id:       number
+  pid:            number
+  tid:            number
+  timestamp:      string   // ISO-8601
+  level:          number
+  keyword:        number
+  data_size:      number
+  description:    string
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 export function kindLabel(kind: PersistenceKind): string {

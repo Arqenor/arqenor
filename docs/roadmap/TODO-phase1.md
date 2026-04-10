@@ -187,7 +187,7 @@ G               ✅
      ↓
 H               ✅
      ↓
-B4–B9, C, F5   → Phase 1 suite (C Linux pending)
+B4–B9, C, F5   ✅ Phase 1 complete
 ```
 
 ---
@@ -200,4 +200,4 @@ B4–B9, C, F5   → Phase 1 suite (C Linux pending)
 | `sentinel-platform` | B1–B9, E1–E6, F1–F5 | ✅ (stubs: B3, E1, E4) |
 | `sentinel-tui` | G | ✅ |
 | `sentinel-desktop` (Tauri) | G, H | ✅ |
-| `sentinel-platform` Linux | C1–C7 | ⏳ pending |
+| `sentinel-platform` Linux | C1–C7 | ✅ |

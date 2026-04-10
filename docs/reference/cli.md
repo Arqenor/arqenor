@@ -96,23 +96,30 @@ Persistence (3 entries)
 sentinel watch [OPTIONS]
 
 Options:
-  --interval <SECS>   Seconds between scans [default: 30]
-  -h, --help          Print help
+  --watch-path <PATH>   Directory to monitor for FIM [default: C:\Windows\System32 / /etc]
+  --db <PATH>           SQLite database for alert persistence [default: sentinel.db]
+  -h, --help            Print help
 ```
 
-Watch mode runs `scan --host --persistence` in a loop, printing only **changes** relative to the previous snapshot:
+Watch mode starts a **real-time detection pipeline**:
+
+1. **Process watcher** — Windows: EvtSubscribe (Security 4688/4689); Linux: /proc polling (500ms)
+2. **FIM watcher** — Windows: ReadDirectoryChangesW; Linux: inotify
+3. **Detection pipeline** — evaluates 15 LOLBin process rules + 9 file-path rules against live events
+4. **Alert consumer** — prints alerts to stdout and persists to SQLite
 
 ```
-[2026-04-08 14:32:00] New process: unknown.exe (PID 9012, SYSTEM, RISK: HIGH)
-[2026-04-08 14:32:00] New persistence: RegistryRun "MyCoolApp" → C:\Temp\evil.exe  [NEW]
-[2026-04-08 14:32:30] Process terminated: unknown.exe (PID 9012)
+$ sentinel watch --watch-path C:\Windows\System32
+SENTINEL watch — 15 process rules, 9 file rules | FIM: C:\Windows\System32 | db: sentinel.db
+Press Ctrl-C to stop.
+────────────────────────────────────────────────────────────────────────
+
+[HIGH] 14:32:05 | lolbin | PowerShell Encoded Command — PID 9012 (powershell.exe) | T1059.001
+[CRIT] 14:32:10 | file_rule | Hosts File Modified — C:\Windows\System32\drivers\etc\hosts (modified) | T1565.001
+[stats] proc:1247 file:83 alerts:2
 ```
 
-Press `Ctrl+C` to stop.
-
-### Suppress unchanged output
-
-When nothing changes, watch mode prints nothing (silent by default). Use `--verbose` (planned) to always print the snapshot.
+Press `Ctrl+C` to stop. Session summary is printed on exit.
 
 ---
 
