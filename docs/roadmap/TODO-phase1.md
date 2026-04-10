@@ -71,13 +71,13 @@ Légende : `[ ]` à faire · `[~]` en cours · `[x]` terminé
 
 > fichiers cibles : `rust/sentinel-platform/src/linux/persistence_detector.rs`
 
-- [ ] **C1** — Systemd timers `T1053.006` — scanner `/etc/systemd/system/*.timer`
-- [ ] **C2** — LD_PRELOAD `T1574.006` — lire `/etc/ld.so.preload`, alerter si non vide
-- [ ] **C3** — Modules kernel `T1014` — parser `/proc/modules`, whitelist des modules connus
-- [ ] **C4** — SSH authorized_keys `T1098.004` — FIM sur `~/.ssh/authorized_keys` de tous les users
-- [ ] **C5** — PAM modules `T1556.003` — hash de `/etc/pam.d/*` + `/lib/security/*.so`
-- [ ] **C6** — Shell profiles `T1546.004` — FIM sur `.bashrc`, `.profile`, `.bash_profile`
-- [ ] **C7** — Git hooks `T1059` — scanner `.git/hooks/` dans les repos connus
+- [x] **C1** — Systemd timers `T1053.006` — scanner `/etc/systemd/system/*.timer`
+- [x] **C2** — LD_PRELOAD `T1574.006` — lire `/etc/ld.so.preload`, alerter si non vide
+- [x] **C3** — Modules kernel `T1014` — parser `/proc/modules`, whitelist des modules connus
+- [x] **C4** — SSH authorized_keys `T1098.004` — FIM sur `~/.ssh/authorized_keys` de tous les users
+- [x] **C5** — PAM modules `T1556.003` — hash de `/etc/pam.d/*` + `/lib/security/*.so`
+- [x] **C6** — Shell profiles `T1546.004` — FIM sur `.bashrc`, `.profile`, `.bash_profile`
+- [x] **C7** — Git hooks `T1059` — scanner `.git/hooks/` dans les repos connus
 
 ---
 
