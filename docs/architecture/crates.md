@@ -39,6 +39,8 @@ pub enum SentinelError {
 | `models/persistence.rs` | `PersistenceKind` enum: RegistryRun, ScheduledTask, WindowsService, WmiSubscription, ComHijacking, DllSideloading, BitsJob, AppInitDll, IfeoHijack, AccessibilityHijack, PrintMonitor, LsaProvider, NetshHelper, ActiveSetup, SystemdUnit, Cron, RcLocal, LdPreload, KernelModule, SshAuthorizedKey, PamModule, ShellProfile, GitHook, LaunchDaemon, LaunchAgent, StartupFolder |
 | `models/file_event.rs` | `FileEvent` — kind (Created / Modified / Deleted / Renamed), path, hash, size |
 | `models/alert.rs` | `Alert` — id, severity, kind, message, timestamp, metadata, rule_id, attack_id |
+| `models/connection.rs` | `ConnectionInfo` (pid, proto, local_addr, remote_addr, state) · `Proto` (Tcp/Udp) · `ConnState` |
+| `models/network.rs` | `FlowKey`, `FlowRecord` (timestamps, conn_count) · `BeaconScore` (CV, score) · `DnsQuery` · `DnsAnomalyScore` (tunneling_score, dga_score) |
 
 ### Rules engine (`rules/`)
 
@@ -47,14 +49,16 @@ pub enum SentinelError {
 | `rules/mod.rs` | `DetectionRule`, `RuleCondition` (ProcessCreate / ProcessName), `Pattern` glob matcher |
 | `rules/engine.rs` | `evaluate(rule, event) -> Option<Alert>`, `evaluate_all(rules, event) -> Vec<Alert>` |
 | `rules/lolbin.rs` | 15 built-in LOLBin rules (SENT-1001 to SENT-1015) |
+| `rules/network.rs` | `analyze_beaconing()` (C2 T1071), `analyze_dns_tunneling()` (T1071.004), `score_dga()` (T1568.002), `shannon_entropy()` |
 
 ### Detection pipeline (`pipeline.rs`)
 
 | Type | Purpose |
 |---|---|
-| `DetectionPipeline` | `tokio::select!` loop consuming `ProcessEvent` + `FileEvent` streams, evaluating process rules + 9 file-path `SensitivePathRule`s, emitting `Alert`s |
+| `DetectionPipeline` | `tokio::select!` loop consuming `ProcessEvent` + `FileEvent` + `ConnectionInfo` streams + 60s analysis interval. Process rules, file-path rules, C2 beaconing flow analysis |
 | `PipelineConfig` | Holds process rules + sensitive path rules (default loads all built-in rules) |
-| `PipelineStats` | Atomic counters: process_events, file_events, alerts_fired |
+| `PipelineStats` | Atomic counters: process_events, file_events, conn_events, alerts_fired |
+| `with_connections()` | Constructor variant that adds a `Receiver<ConnectionInfo>` for network analysis |
 | `DetectionEngine` | Legacy convenience builder (spawns pipeline, returns stats handle) |
 
 ### Traits
@@ -64,7 +68,7 @@ pub enum SentinelError {
 | `ProcessMonitor` | `async fn snapshot() -> Vec<ProcessInfo>` · `async fn watch(Sender<ProcessEvent>)` · `async fn enrich(pid) -> ProcessInfo` |
 | `PersistenceDetector` | `async fn detect() -> Vec<PersistenceEntry>` · `async fn diff_baseline(&[PersistenceEntry]) -> Vec<PersistenceEntry>` |
 | `FsScanner` | `async fn scan_path(root, config) -> Vec<FileEvent>` · `async fn hash_file(path) -> FileHash` · `async fn watch_path(root, Sender<FileEvent>)` |
-| `ConnectionMonitor` | `async fn snapshot() -> Vec<ConnectionInfo>` |
+| `ConnectionMonitor` | `async fn snapshot() -> Vec<ConnectionInfo>` · `async fn watch(Sender<ConnectionInfo>, interval_ms)` (default: NotSupported) |
 
 ---
 
@@ -89,12 +93,14 @@ These are the only entry points. Callers never import platform sub-modules direc
 | Feature | Windows | Linux | macOS |
 |---|---|---|---|
 | Process snapshot | `sysinfo` | `sysinfo` | `sysinfo` |
-| Process events | EvtSubscribe (Security 4688/4689) | /proc poll (500ms HashSet diff) | placeholder |
-| Filesystem watch | `ReadDirectoryChangesW` | `inotify` | planned |
-| Persistence — system | Registry Run/RunOnce, Services, WMI, COM, BITS, AppInit, IFEO, PrintMon, LSA, Netsh, ActiveSetup | systemd units, cron, LD_PRELOAD, kernel modules, PAM modules, shell profiles, git hooks | LaunchDaemon |
-| Persistence — user | HKCU Run keys, Startup folder, Accessibility hijack | SSH authorized_keys, user shell profiles | LaunchAgent |
-| Process enrichment | `CreateToolhelp32Snapshot` (loaded DLLs) | `/proc/<pid>/maps` (shared libs) | planned |
-| Extra deps | `windows-rs 0.52`, `winreg` | `inotify 0.10`, `sysinfo` | `plist` |
+| Process events | EvtSubscribe (Security 4688/4689) | /proc poll (500ms HashSet diff) | ESF `NOTIFY_EXEC/EXIT` via `endpoint-sec` |
+| Filesystem watch | `ReadDirectoryChangesW` | `inotify` | ESF `NOTIFY_CREATE/WRITE/UNLINK/RENAME` |
+| Persistence — system | Registry Run/RunOnce, Services, WMI, COM, BITS, AppInit, IFEO, PrintMon, LSA, Netsh, ActiveSetup | systemd units, cron, LD_PRELOAD, kernel modules, PAM modules, shell profiles, git hooks | LaunchDaemon/Agent + plist parsing, Login Items, Auth Plugins, periodic scripts, cron tabs |
+| Persistence — user | HKCU Run keys, Startup folder, Accessibility hijack | SSH authorized_keys, user shell profiles | LaunchAgent, DYLD_INSERT_LIBRARIES |
+| Connections | `GetExtendedTcpTable` / `GetExtendedUdpTable` (native IP Helper) | `/proc/net/tcp[6]` + inode→PID | `lsof -i -n -P` |
+| Process enrichment | `CreateToolhelp32Snapshot` (loaded DLLs) | `/proc/<pid>/maps` (shared libs) | `sysinfo` |
+| ESF / Kernel | ETW (10 providers, TDH parsing) + EvtSubscribe | eBPF (5 probes: execve, memory, persistence, privesc, rootkit) | Endpoint Security Framework (`endpoint-sec` crate) |
+| Extra deps | `windows-rs 0.52`, `winreg` | `inotify 0.10`, `libbpf-rs` | `plist`, `endpoint-sec 0.5` |
 
 ### Adding a new platform
 

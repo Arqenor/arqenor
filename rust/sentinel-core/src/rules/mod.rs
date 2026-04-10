@@ -1,5 +1,8 @@
 pub mod engine;
 pub mod lolbin;
+pub mod network;
+pub mod sigma;
+pub mod sigma_condition;
 
 use serde::{Deserialize, Serialize};
 

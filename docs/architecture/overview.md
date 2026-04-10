@@ -95,24 +95,25 @@ Client receives typed stream / response
 ## Data Flow — Real-time Detection Pipeline
 
 ```
-sentinel-platform::new_process_monitor().watch(proc_tx)
-   │ ProcessEvent (Created / Terminated)
-   ▼
-   ┌──────────────────────────────────────────────┐
-   │          DetectionPipeline                    │
-   │  tokio::select! on process_rx + file_rx      │
-   │  • 15 LOLBin process rules (SENT-1001..1015) │
-   │  • 9 file-path rules (SENT-F001..F014)       │
-   └──────────────────┬───────────────────────────┘
-                      │ Alert
-sentinel-platform::new_fs_scanner().watch_path(fim_tx)
-   │ FileEvent (Created / Modified / Deleted)
-   └──▶ same pipeline ──▶ alert_tx
-                                 │
-                    ┌────────────┴────────────┐
-                    ▼                         ▼
-            stdout / TUI              sentinel-store
-                                    insert_alert(SQLite)
+ProcessWatch ─────► proc_tx ───┐
+  Win: EvtSubscribe 4688/4689  │
+  Linux: /proc poll 500ms      │
+  macOS: ESF NOTIFY_EXEC/EXIT  │
+                               │
+FIM Watch ────────► fim_tx ────┤
+  Win: ReadDirectoryChangesW   │   ┌───────────────────────────────────────┐
+  Linux: inotify               ├──►│        DetectionPipeline              │
+  macOS: ESF NOTIFY_CREATE/... │   │  tokio::select! on 3 rx + 60s timer  │
+                               │   │  • 15 LOLBin process rules            │
+ConnWatch ────────► conn_tx ───┘   │  • 9 file-path rules                  │
+  Win: GetExtendedTcpTable         │  • C2 beaconing (CV scoring / 60s)    │
+  Linux: /proc/net/tcp poll        │  • DNS tunneling + DGA (periodic)     │
+  macOS: lsof                      └──────────────┬────────────────────────┘
+                                                  │ Alert
+                                   ┌──────────────┴──────────────┐
+                                   ▼                              ▼
+                           stdout / TUI                   sentinel-store
+                                                       insert_alert(SQLite)
 ```
 
 ## Data Flow — Alerts (legacy / gRPC path)

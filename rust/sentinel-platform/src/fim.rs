@@ -191,6 +191,26 @@ pub fn linux_critical_paths() -> Vec<PathBuf> {
 }
 
 // ---------------------------------------------------------------------------
+// F6 — Critical macOS paths
+// ---------------------------------------------------------------------------
+
+#[cfg(target_os = "macos")]
+pub fn macos_critical_paths() -> Vec<PathBuf> {
+    let home = std::env::var("HOME").unwrap_or_else(|_| "/var/root".to_string());
+    vec![
+        PathBuf::from("/etc/hosts"),
+        PathBuf::from("/etc/sudoers"),
+        PathBuf::from("/etc/pam.d"),
+        PathBuf::from("/etc/ssh/sshd_config"),
+        PathBuf::from("/Library/LaunchDaemons"),
+        PathBuf::from("/Library/LaunchAgents"),
+        PathBuf::from("/Library/Security/SecurityAgentPlugins"),
+        PathBuf::from(format!("{}/Library/LaunchAgents", home)),
+        PathBuf::from("/usr/local/bin"),
+    ]
+}
+
+// ---------------------------------------------------------------------------
 // FimMonitor — public façade
 // ---------------------------------------------------------------------------
 

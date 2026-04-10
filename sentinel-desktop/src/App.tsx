@@ -6,6 +6,9 @@ import EtwStream   from './pages/EtwStream'
 import Processes   from './pages/Processes'
 import Network     from './pages/Network'
 import Persistence from './pages/Persistence'
+import Incidents       from './pages/Incidents'
+import MemoryForensics from './pages/MemoryForensics'
+import IocDatabase     from './pages/IocDatabase'
 
 export default function App() {
   return (
@@ -18,6 +21,9 @@ export default function App() {
         <Route path="/processes"   element={<Processes />} />
         <Route path="/network"     element={<Network />} />
         <Route path="/persistence" element={<Persistence />} />
+        <Route path="/incidents"   element={<Incidents />} />
+        <Route path="/memory"      element={<MemoryForensics />} />
+        <Route path="/ioc"         element={<IocDatabase />} />
       </Routes>
     </Layout>
   )

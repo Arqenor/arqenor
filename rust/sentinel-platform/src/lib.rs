@@ -101,6 +101,24 @@ pub fn new_etw_consumer() -> Result<
     windows::etw_consumer::EtwConsumer::start()
 }
 
+/// Start the kernel driver bridge (Windows only, `kernel-driver` feature).
+///
+/// Connects to `\SentinelPort` and streams kernel events into the standard
+/// `ProcessEvent` / `FileEvent` / `Alert` channels consumed by the detection
+/// pipeline.  Fails if the driver is not loaded.
+///
+/// ```rust,ignore
+/// let senders = DriverBridgeSenders { process_tx, file_tx, alert_tx };
+/// start_driver_bridge(DriverBridgeConfig::default(), senders).await?;
+/// ```
+#[cfg(all(target_os = "windows", feature = "kernel-driver"))]
+pub async fn start_driver_bridge(
+    config:  windows::driver_bridge::DriverBridgeConfig,
+    senders: windows::driver_bridge::DriverBridgeSenders,
+) -> Result<(), sentinel_core::error::SentinelError> {
+    windows::driver_bridge::start_driver_bridge(config, senders).await
+}
+
 pub fn new_fim_monitor() -> fim::FimMonitor {
     #[cfg(target_os = "windows")]
     let paths = fim::windows_critical_paths();
@@ -108,7 +126,10 @@ pub fn new_fim_monitor() -> fim::FimMonitor {
     #[cfg(target_os = "linux")]
     let paths = fim::linux_critical_paths();
 
-    #[cfg(not(any(target_os = "windows", target_os = "linux")))]
+    #[cfg(target_os = "macos")]
+    let paths = fim::macos_critical_paths();
+
+    #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
     let paths = Vec::new();
 
     fim::FimMonitor::with_paths(paths)

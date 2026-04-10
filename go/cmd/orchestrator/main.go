@@ -7,10 +7,12 @@ import (
 	"os/signal"
 	"path/filepath"
 	"syscall"
+	"time"
 
 	"go.uber.org/zap"
 
 	"sentinel/go/internal/api"
+	"sentinel/go/internal/api/routes"
 	grpcclient "sentinel/go/internal/grpc"
 	"sentinel/go/internal/scanner"
 	"sentinel/go/internal/store"
@@ -46,9 +48,37 @@ func main() {
 	defer st.Close()
 
 	sc := scanner.New(logger)
+	broadcaster := routes.NewAlertBroadcaster()
+
+	// Subscribe to the Rust detection pipeline and fan alerts out to:
+	//   1. SQLite (durable storage)
+	//   2. AlertBroadcaster (live SSE clients)
+	// Auto-reconnect on stream failure with a 5 s back-off.
+	if client != nil {
+		go func() {
+			for {
+				err := client.WatchAlerts(ctx, func(a store.Alert) {
+					if insertErr := st.InsertAlert(a); insertErr != nil {
+						logger.Warn("insert alert", zap.Error(insertErr))
+					}
+					broadcaster.Publish(a)
+				})
+				if ctx.Err() != nil {
+					return // clean shutdown — stop reconnecting
+				}
+				logger.Warn("alert stream disconnected, reconnecting in 5 s",
+					zap.Error(err))
+				select {
+				case <-time.After(5 * time.Second):
+				case <-ctx.Done():
+					return
+				}
+			}
+		}()
+	}
 
 	// Start REST API.
-	router := api.NewServer(logger, sc, st)
+	router := api.NewServer(logger, sc, st, broadcaster)
 	ln, err := net.Listen("tcp", ":8080")
 	if err != nil {
 		logger.Fatal("listen :8080", zap.Error(err))

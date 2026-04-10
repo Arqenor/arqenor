@@ -102,6 +102,67 @@ export interface EtwEvent {
   description:    string
 }
 
+// ── Incidents ────────────────────────────────────────────────────────────────
+
+export interface Incident {
+  id: string
+  score: number
+  severity: Severity
+  attack_ids: string[]
+  alerts: Alert[]
+  summary: string
+  pid: number | null
+  first_seen: string
+  last_seen: string
+  is_closed: boolean
+}
+
+// ── Memory Forensics ─────────────────────────────────────────────────────────
+
+export type MemoryAnomalyKind = 'AnonymousExecutable' | 'ProcessHollowing' | 'ExecutableHeap'
+
+export interface MemoryAnomaly {
+  kind: MemoryAnomalyKind
+  base: number
+  size: number
+  protect: number
+  disk_path: string | null
+  mismatch: string | null
+}
+
+export interface MemoryScanResult {
+  pid: number
+  image_path: string
+  total_regions: number
+  suspicious: MemoryAnomaly[]
+}
+
+export interface NtdllHookResult {
+  function_name: string
+  is_hooked: boolean
+  hook_type: string | null
+}
+
+export interface ByovdAlert {
+  driver_name: string
+  driver_path: string
+  sha256: string
+  vuln_name: string
+  cve: string | null
+}
+
+// ── IOC Database ─────────────────────────────────────────────────────────────
+
+export interface IocStats {
+  sha256_count: number
+  md5_count: number
+  ip_count: number
+  domain_count: number
+  url_count: number
+  total: number
+  last_updated: string | null
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 export function kindLabel(kind: PersistenceKind): string {

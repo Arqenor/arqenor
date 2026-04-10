@@ -8,6 +8,10 @@ members = [
     "rust/sentinel-tui",
     "rust/sentinel-cli",
     "sentinel-desktop/src-tauri",
+    "sentinel-ebpf",           # Phase 2 — Linux eBPF kernel telemetry (B2-B6)
+]
+exclude = [
+    "sentinel-driver",         # Nested workspace: nightly + WDK toolchain, no_std
 ]
 
 [workspace.dependencies]
@@ -51,4 +55,10 @@ features = [
     "Win32_System_Com",
     "Win32_System_Diagnostics_Etw",
     "Win32_System_Time",
+    "Win32_NetworkManagement_IpHelper",
+    "Win32_Networking_WinSock",
+    "Win32_System_Memory",
+    "Win32_System_Diagnostics_Debug",
+    "Win32_System_ProcessStatus",
+    "Win32_System_LibraryLoader",
 ]

@@ -1,6 +1,6 @@
 # TODO — Phase 2 : Kernel Telemetry (ETW + eBPF)
 > Q3 2026 | ~30 ATT&CK techniques | Priorité : HAUTE
-> Last updated: 2026-04-10
+> Last updated: 2026-04-11
 
 Légende : `[ ]` à faire · `[~]` en cours · `[x]` terminé
 
@@ -33,7 +33,7 @@ Légende : `[ ]` à faire · `[~]` en cours · `[x]` terminé
   - `Microsoft-Windows-Kernel-File`    `{EDD08927-…}` — file create (evt 12) pour FIM temps-réel
   - `Microsoft-Windows-Kernel-Registry` — opérations registre
 
-- [ ] **A5** — TDH parsing des propriétés `UserData`
+- [x] **A5** — TDH parsing des propriétés `UserData`
   - `TdhGetEventInformation` → décoder les bytes en champs typés (cmdline, filename, domain…)
   - Permet le filtrage sur contenu : PS 4104 + IOC regex, DNS 3006 + C2 domain list
   - Nécessite feature `Win32_System_Diagnostics_Etw` étendue + `TDH` linking
@@ -49,31 +49,31 @@ Légende : `[ ]` à faire · `[~]` en cours · `[x]` terminé
 
 > nouveau crate : `sentinel-ebpf/` (C probes + Rust loader libbpf-rs)
 
-- [ ] **B1** — Créer le crate `sentinel-ebpf` (workspace member)
+- [x] **B1** — Créer le crate `sentinel-ebpf` (workspace member)
   - `sentinel-ebpf/src/probes/` — programmes eBPF en C (compilés avec clang)
   - `sentinel-ebpf/src/loader.rs` — loader Rust avec `libbpf-rs`
   - `sentinel-ebpf/src/events.rs` — struct `EbpfEvent` + ring buffer consumer
 
-- [ ] **B2** — Probes exécution de processus `T1059`
+- [x] **B2** — Probes exécution de processus `T1059`
   - `tracepoint/syscalls/sys_enter_execve` → capture filename + argv
   - `tracepoint/syscalls/sys_enter_execveat` → dirfd + filename
 
-- [ ] **B3** — Probes injection mémoire `T1055`
+- [x] **B3** — Probes injection mémoire `T1055`
   - `kprobe/do_mmap` → flag PROT_EXEC | PROT_WRITE combinés
   - `kprobe/ptrace` → attach à un autre process (T1055.008)
 
-- [ ] **B4** — Probes persistence `T1574.006 / T1053`
+- [x] **B4** — Probes persistence `T1574.006 / T1053`
   - `sys_enter_write` → écriture sur `/etc/ld.so.preload`
   - `sys_enter_openat` → ouverture de `/etc/cron.d/`, `/etc/systemd/system/`
 
-- [ ] **B5** — Probes privilege escalation `T1068`
+- [x] **B5** — Probes privilege escalation `T1068`
   - `kprobe/commit_creds` → changement uid/gid
   - `kprobe/prepare_kernel_cred` → setuid(0) depuis process non-root
 
-- [ ] **B6** — Probe chargement de module kernel `T1014`
+- [x] **B6** — Probe chargement de module kernel `T1014`
   - `kprobe/do_init_module` → nom du module + hash
 
-- [ ] **B7** — Pipeline eBPF → sentinel-core
+- [x] **B7** — Pipeline eBPF → sentinel-core
   - BPF ring buffer → `libbpf-rs` → `tokio::sync::mpsc::Sender<EbpfEvent>`
   - `EbpfEvent` → règles de détection → `Alert`
 
@@ -83,11 +83,11 @@ Légende : `[ ]` à faire · `[~]` en cours · `[x]` terminé
 
 > nouveau crate : `sentinel-driver/` (WDK — windows-drivers-rs)
 
-- [ ] **C1** — Setup crate `sentinel-driver` avec WDK toolchain
-- [ ] **C2** — Minifilter file-system (`FltRegisterFilter`) — FIM kernel-level
-- [ ] **C3** — Registry callbacks (`CmRegisterCallback`)
-- [ ] **C4** — Process notify (`PsSetCreateProcessNotifyRoutineEx`)
-- [ ] **C5** — `ObRegisterCallbacks` — self-protection contre EDR killers
+- [x] **C1** — Setup crate `sentinel-driver` avec WDK toolchain
+- [x] **C2** — Minifilter file-system (`FltRegisterFilter`) — FIM kernel-level
+- [x] **C3** — Registry callbacks (`CmRegisterCallback`)
+- [x] **C4** — Process notify (`PsSetCreateProcessNotifyRoutineEx`)
+- [x] **C5** — `ObRegisterCallbacks` — self-protection contre EDR killers
 - [ ] **C6** — ETW-TI (`Microsoft-Windows-Threat-Intelligence`) — nécessite PPL
   - Accès à VirtualAllocEx, WriteProcessMemory, SetThreadContext…
   - Requiert Microsoft-signed driver → WHQL + EV cert (6-9 mois)
@@ -129,8 +129,8 @@ D1 → D4        → macOS ESF (parallélisable)
 | Crate | Sections | Statut |
 |-------|----------|--------|
 | `sentinel-platform` (Windows) | A1, A2, A3 | ✅ |
-| `sentinel-platform` (Windows) | A4, A5 | ⏳ pending (A4 ✅) |
+| `sentinel-platform` (Windows) | A4, A5 | ✅ |
 | `sentinel-desktop` | A6 | ✅ |
-| `sentinel-ebpf` (nouveau) | B1–B7 | ⏳ pending |
-| `sentinel-driver` (nouveau) | C1–C6 | 🔴 long-term |
+| `sentinel-ebpf` (nouveau) | B1–B7 | ✅ |
+| `sentinel-driver` (nouveau) | C1–C5 | ✅ (C6 bloqué MVI) |
 | `sentinel-esf` (nouveau) | D1–D4 | ⏳ pending |

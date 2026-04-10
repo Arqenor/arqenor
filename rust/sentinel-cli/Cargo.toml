@@ -7,6 +7,10 @@ edition = "2021"
 name = "sentinel"
 path = "src/main.rs"
 
+[features]
+default = []
+kernel-driver = ["sentinel-platform/kernel-driver"]
+
 [dependencies]
 sentinel-core     = { path = "../sentinel-core" }
 sentinel-platform = { path = "../sentinel-platform" }

@@ -140,6 +140,8 @@ pub struct EtwEvent {
     pub user_data: Vec<u8>,
     /// Static ATT&CK-tagged label derived from (provider, event_id).
     pub description: &'static str,
+    /// Decoded event properties from TDH (empty if parse fails or non-admin).
+    pub properties: std::collections::HashMap<String, String>,
 }
 
 /// Map `(data1_hex_upper, event_id)` → description.
@@ -202,6 +204,9 @@ unsafe extern "system" fn event_record_callback(record: *mut EVENT_RECORD) {
     let event_id    = r.EventHeader.EventDescriptor.Id;
     let description = describe_event(&provider_guid, event_id);
 
+    // Parse TDH properties while `record` is still valid (inside the callback).
+    let properties = super::etw_tdh::parse_event_properties(record as *const _);
+
     let ev = EtwEvent {
         provider_guid,
         event_id,
@@ -214,6 +219,7 @@ unsafe extern "system" fn event_record_callback(record: *mut EVENT_RECORD) {
         keyword:   r.EventHeader.EventDescriptor.Keyword,
         user_data,
         description,
+        properties,
     };
 
     // Non-blocking: drop the event if the consumer is lagging rather than

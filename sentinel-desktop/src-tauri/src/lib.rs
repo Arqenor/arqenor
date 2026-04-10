@@ -146,6 +146,7 @@ fn score_process(p: &ProcessInfo, all_procs: &[ProcessInfo]) -> ProcessScore {
         if sys.iter().any(|&s| p.name.to_lowercase() == s)
             && !low.contains("\\windows\\system32\\")
             && !low.contains("\\windows\\syswow64\\")
+            && !low.ends_with("\\windows\\explorer.exe")
         {
             factors.push(ScoreFactor {
                 name:      "System process masquerading from unexpected path".to_string(),
@@ -305,6 +306,62 @@ async fn get_etw_events(state: State<'_, AppState>) -> Result<Vec<EtwEventDto>, 
     Ok(ring.iter().rev().cloned().collect())
 }
 
+#[tauri::command]
+fn get_incidents(_state: State<AppState>) -> Vec<serde_json::Value> {
+    // Return incidents from the correlation engine.
+    // For now, return an empty vec — the wiring agent will connect this.
+    vec![]
+}
+
+#[tauri::command]
+fn scan_memory() -> Vec<serde_json::Value> {
+    // Calls sentinel_platform::windows::memory_scan::scan_all_processes()
+    // For now, return empty — requires admin privileges.
+    #[cfg(target_os = "windows")]
+    {
+        // TODO: wire to memory_scan::scan_all_processes()
+    }
+    vec![]
+}
+
+#[tauri::command]
+fn check_ntdll() -> Vec<serde_json::Value> {
+    #[cfg(target_os = "windows")]
+    {
+        // TODO: wire to ntdll_check::check_ntdll_hooks()
+    }
+    vec![]
+}
+
+#[tauri::command]
+fn check_byovd() -> Vec<serde_json::Value> {
+    #[cfg(target_os = "windows")]
+    {
+        // TODO: wire to byovd::scan_byovd()
+    }
+    vec![]
+}
+
+#[tauri::command]
+fn get_ioc_stats() -> serde_json::Value {
+    // Return empty stats — the wiring agent will connect to IocDatabase.
+    serde_json::json!({
+        "sha256_count": 0,
+        "md5_count": 0,
+        "ip_count": 0,
+        "domain_count": 0,
+        "url_count": 0,
+        "total": 0,
+        "last_updated": null
+    })
+}
+
+#[tauri::command]
+async fn refresh_ioc_feeds() -> u32 {
+    // TODO: wire to ioc::feeds::refresh_all_feeds()
+    0
+}
+
 // ── App entry point ───────────────────────────────────────────────────────────
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -373,6 +430,12 @@ pub fn run() {
             start_network_scan,
             get_alerts,
             get_etw_events,
+            get_incidents,
+            scan_memory,
+            check_ntdll,
+            check_byovd,
+            get_ioc_stats,
+            refresh_ioc_feeds,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

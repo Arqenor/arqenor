@@ -2,7 +2,9 @@ package routes
 
 import (
 	"context"
+	"io"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -13,14 +15,57 @@ import (
 	"sentinel/go/internal/store"
 )
 
-type Server struct {
-	scanner *scanner.Scanner
-	store   *store.Store
-	logger  *zap.Logger
+// ── Alert broadcaster (fan-out to SSE subscribers) ───────────────────────────
+
+type AlertBroadcaster struct {
+	mu   sync.Mutex
+	subs map[string]chan store.Alert
 }
 
-func NewServer(logger *zap.Logger, sc *scanner.Scanner, st *store.Store) *gin.Engine {
-	srv := &Server{scanner: sc, store: st, logger: logger}
+func NewAlertBroadcaster() *AlertBroadcaster {
+	return &AlertBroadcaster{subs: make(map[string]chan store.Alert)}
+}
+
+func (b *AlertBroadcaster) Subscribe() (id string, ch <-chan store.Alert) {
+	raw := make(chan store.Alert, 64)
+	id = uuid.New().String()
+	b.mu.Lock()
+	b.subs[id] = raw
+	b.mu.Unlock()
+	return id, raw
+}
+
+func (b *AlertBroadcaster) Unsubscribe(id string) {
+	b.mu.Lock()
+	if ch, ok := b.subs[id]; ok {
+		close(ch)
+		delete(b.subs, id)
+	}
+	b.mu.Unlock()
+}
+
+func (b *AlertBroadcaster) Publish(a store.Alert) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for _, ch := range b.subs {
+		select {
+		case ch <- a:
+		default: // slow subscriber — drop rather than block
+		}
+	}
+}
+
+// ── HTTP server ───────────────────────────────────────────────────────────────
+
+type Server struct {
+	scanner     *scanner.Scanner
+	store       *store.Store
+	logger      *zap.Logger
+	broadcaster *AlertBroadcaster
+}
+
+func NewServer(logger *zap.Logger, sc *scanner.Scanner, st *store.Store, b *AlertBroadcaster) *gin.Engine {
+	srv := &Server{scanner: sc, store: st, logger: logger, broadcaster: b}
 
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
@@ -31,6 +76,7 @@ func NewServer(logger *zap.Logger, sc *scanner.Scanner, st *store.Store) *gin.En
 	{
 		v1.GET("/health", srv.handleHealth)
 		v1.GET("/alerts", srv.handleListAlerts)
+		v1.GET("/alerts/stream", srv.handleStreamAlerts)
 		v1.GET("/scans", srv.handleListScans)
 		v1.POST("/scans", srv.handleStartScan)
 		v1.GET("/hosts", srv.handleListHosts)
@@ -51,6 +97,35 @@ func (s *Server) handleListAlerts(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"alerts": alerts})
+}
+
+// handleStreamAlerts streams real-time alerts as Server-Sent Events.
+// Clients subscribe to GET /api/v1/alerts/stream and receive each alert as a
+// JSON-encoded "alert" SSE event.  The stream stays open until the client
+// disconnects or the server shuts down.
+func (s *Server) handleStreamAlerts(c *gin.Context) {
+	id, ch := s.broadcaster.Subscribe()
+	defer s.broadcaster.Unsubscribe(id)
+
+	c.Header("Content-Type", "text/event-stream")
+	c.Header("Cache-Control", "no-cache")
+	c.Header("Connection", "keep-alive")
+	c.Header("X-Accel-Buffering", "no") // disable nginx response buffering
+
+	clientCtx := c.Request.Context()
+
+	c.Stream(func(_ io.Writer) bool {
+		select {
+		case alert, ok := <-ch:
+			if !ok {
+				return false
+			}
+			c.SSEvent("alert", alert)
+			return true
+		case <-clientCtx.Done():
+			return false
+		}
+	})
 }
 
 func (s *Server) handleListScans(c *gin.Context) {

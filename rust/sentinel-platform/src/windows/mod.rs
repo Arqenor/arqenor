@@ -1,7 +1,13 @@
+pub mod byovd;
 pub mod connections;
 pub mod cred_guard;
+#[cfg(feature = "kernel-driver")]
+pub mod driver_bridge;
 pub mod etw_consumer;
 pub mod etw_monitor;
+pub mod etw_tdh;
 pub mod fs_scanner;
+pub mod memory_scan;
+pub mod ntdll_check;
 pub mod persistence;
 pub mod process_monitor;

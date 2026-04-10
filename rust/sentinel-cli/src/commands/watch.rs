@@ -34,12 +34,40 @@ pub async fn run(args: WatchArgs) -> Result<()> {
     let (alert_tx, mut alert_rx) = mpsc::channel::<Alert>(256);
 
     // ── Start platform watchers (non-fatal if unsupported) ───────────────────
-    if let Err(e) = new_process_monitor().watch(proc_tx).await {
-        warn!("process watcher unavailable: {e}");
-    }
+    //
+    // On Windows with the kernel-driver feature, the driver bridge provides
+    // kernel-level process + file telemetry that supersedes the usermode
+    // watchers (EvtSubscribe / ReadDirectoryChangesW). If the driver is loaded,
+    // we use it; otherwise fall back to the standard watchers.
+    #[cfg(all(target_os = "windows", feature = "kernel-driver"))]
+    let driver_active = {
+        use sentinel_platform::windows::driver_bridge::{DriverBridgeConfig, DriverBridgeSenders};
+        let senders = DriverBridgeSenders {
+            process_tx: proc_tx.clone(),
+            file_tx:    fim_tx.clone(),
+            alert_tx:   alert_tx.clone(),
+        };
+        match sentinel_platform::start_driver_bridge(DriverBridgeConfig::default(), senders).await {
+            Ok(()) => {
+                println!("  kernel driver: connected (\\SentinelPort)");
+                true
+            }
+            Err(e) => {
+                warn!("kernel driver unavailable: {e} — falling back to usermode");
+                false
+            }
+        }
+    };
+    #[cfg(not(all(target_os = "windows", feature = "kernel-driver")))]
+    let driver_active = false;
 
-    if let Err(e) = new_fs_scanner().watch_path(&watch_path, fim_tx).await {
-        warn!("FIM watcher unavailable: {e}");
+    if !driver_active {
+        if let Err(e) = new_process_monitor().watch(proc_tx).await {
+            warn!("process watcher unavailable: {e}");
+        }
+        if let Err(e) = new_fs_scanner().watch_path(&watch_path, fim_tx).await {
+            warn!("FIM watcher unavailable: {e}");
+        }
     }
 
     // ── Start detection pipeline ──────────────────────────────────────────────

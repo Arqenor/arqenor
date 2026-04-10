@@ -14,6 +14,8 @@ type Alert struct {
 	Kind       string    `json:"kind"`
 	Message    string    `json:"message"`
 	OccurredAt time.Time `json:"occurred_at"`
+	RuleID     string    `json:"rule_id,omitempty"`
+	AttackID   string    `json:"attack_id,omitempty"`
 }
 
 type Scan struct {
@@ -37,7 +39,9 @@ CREATE TABLE IF NOT EXISTS alerts (
 	severity    TEXT NOT NULL,
 	kind        TEXT NOT NULL,
 	message     TEXT NOT NULL,
-	occurred_at TEXT NOT NULL
+	occurred_at TEXT NOT NULL,
+	rule_id     TEXT,
+	attack_id   TEXT
 );
 CREATE TABLE IF NOT EXISTS scans (
 	id         TEXT PRIMARY KEY,
@@ -72,9 +76,21 @@ func (s *Store) Close() error { return s.db.Close() }
 
 // ── Alerts ───────────────────────────────────────────────────────────────────
 
+func (s *Store) InsertAlert(a Alert) error {
+	_, err := s.db.Exec(
+		`INSERT OR IGNORE INTO alerts (id, severity, kind, message, occurred_at, rule_id, attack_id)
+		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		a.ID, a.Severity, a.Kind, a.Message,
+		a.OccurredAt.UTC().Format(time.RFC3339),
+		nullableString(a.RuleID), nullableString(a.AttackID),
+	)
+	return err
+}
+
 func (s *Store) ListAlerts() ([]Alert, error) {
 	rows, err := s.db.Query(
-		`SELECT id, severity, kind, message, occurred_at FROM alerts ORDER BY occurred_at DESC`)
+		`SELECT id, severity, kind, message, occurred_at, COALESCE(rule_id,''), COALESCE(attack_id,'')
+		 FROM alerts ORDER BY occurred_at DESC`)
 	if err != nil {
 		return nil, err
 	}
@@ -84,13 +100,20 @@ func (s *Store) ListAlerts() ([]Alert, error) {
 	for rows.Next() {
 		var a Alert
 		var occurredAt string
-		if err := rows.Scan(&a.ID, &a.Severity, &a.Kind, &a.Message, &occurredAt); err != nil {
+		if err := rows.Scan(&a.ID, &a.Severity, &a.Kind, &a.Message, &occurredAt, &a.RuleID, &a.AttackID); err != nil {
 			return nil, err
 		}
 		a.OccurredAt, _ = time.Parse(time.RFC3339, occurredAt)
 		alerts = append(alerts, a)
 	}
 	return alerts, rows.Err()
+}
+
+func nullableString(s string) any {
+	if s == "" {
+		return nil
+	}
+	return s
 }
 
 // ── Scans ────────────────────────────────────────────────────────────────────

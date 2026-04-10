@@ -1,0 +1,13 @@
+[package]
+name    = "sentinel-driver-common"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# no_std: compatible with both the kernel driver crate and userspace client
+[features]
+default = ["std"]
+std = []
+
+[dependencies]
+# No dependencies — pure #[repr(C)] types only

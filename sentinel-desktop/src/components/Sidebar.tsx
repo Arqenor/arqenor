@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { NavLink } from 'react-router-dom'
 import { invoke } from '@tauri-apps/api/core'
-import { LayoutDashboard, Cpu, Network, DatabaseZap, Shield, ShieldAlert, Activity } from 'lucide-react'
+import { LayoutDashboard, Cpu, Network, DatabaseZap, Shield, ShieldAlert, Activity, Siren, Brain, Database } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { Alert } from '@/lib/types'
 
@@ -12,6 +12,9 @@ const NAV = [
   { to: '/processes',   icon: Cpu,             label: 'Processes'   },
   { to: '/network',     icon: Network,         label: 'Network'     },
   { to: '/persistence', icon: DatabaseZap,     label: 'Persistence' },
+  { to: '/incidents',   icon: Siren,           label: 'Incidents'   },
+  { to: '/memory',      icon: Brain,           label: 'Memory'      },
+  { to: '/ioc',         icon: Database,        label: 'Intel'       },
 ]
 
 export default function Sidebar() {

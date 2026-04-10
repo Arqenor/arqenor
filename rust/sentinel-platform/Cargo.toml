@@ -22,10 +22,18 @@ cfg-if        = "1"
 windows = { workspace = true }
 winreg  = "0.52"
 wmi     = "0.14"
+tokio-stream = { workspace = true, optional = true }
+sentinel-driver-client = { path = "../../sentinel-driver/client", optional = true }
+sentinel-driver-common = { path = "../../sentinel-driver/common", optional = true, features = ["std"] }
+
+[features]
+default = []
+kernel-driver = ["sentinel-driver-client", "sentinel-driver-common", "tokio-stream"]
 
 [target.'cfg(target_os = "linux")'.dependencies]
 procfs   = "0.16"
 inotify  = "0.10"
 
 [target.'cfg(target_os = "macos")'.dependencies]
-plist    = "1"
+plist        = "1"
+endpoint-sec = "0.5"
