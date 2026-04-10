@@ -23,6 +23,12 @@ impl WindowsPersistenceDetector {
     }
 }
 
+impl Default for WindowsPersistenceDetector {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 // ── Registry Run keys ─────────────────────────────────────────────────────────
 
 const RUN_KEYS: &[(&str, &str)] = &[
@@ -163,7 +169,7 @@ fn collect_tasks(key: &RegKey, path: &str, out: &mut Vec<PersistenceEntry>) {
 /// extract the command from the first `<Exec>` action's `<Command>` + `<Arguments>`.
 fn task_cmd_from_xml(task_path: &str) -> Option<String> {
     let sys_root = std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".to_string());
-    let rel = task_path.trim_start_matches('\\').replace('\\', &std::path::MAIN_SEPARATOR.to_string());
+    let rel = task_path.trim_start_matches('\\').replace('\\', std::path::MAIN_SEPARATOR_STR);
     let xml_path: PathBuf = [sys_root.as_str(), "System32", "Tasks", rel.as_str()].iter().collect();
 
     let content = std::fs::read_to_string(&xml_path).ok()?;
@@ -378,9 +384,8 @@ fn enum_bits_jobs() -> Vec<PersistenceEntry> {
         // Lines containing the remote URL or local path
         if line.starts_with("REMOTE NAME:") || line.starts_with("Remote Name:") {
             let url = line
-                .splitn(2, ':')
-                .nth(1)
-                .map(|s| s.trim().to_string())
+                .split_once(':')
+                .map(|x| x.1.trim().to_string())
                 .unwrap_or_default();
 
             if url.is_empty() {
@@ -637,6 +642,68 @@ fn enum_print_monitors() -> Vec<PersistenceEntry> {
     entries
 }
 
+// ── B10: Active Setup (T1547.014) ────────────────────────────────────────────
+//
+// HKLM\SOFTWARE\Microsoft\Active Setup\Installed Components and
+// HKCU\SOFTWARE\Microsoft\Active Setup\Installed Components
+// Each subkey with a "StubPath" value runs that command once per new user logon.
+// Legitimate software uses this for per-user initialization; malware abuses it
+// for low-noise persistence (runs exactly once per user, hard to spot).
+
+#[cfg(windows)]
+fn enum_active_setup() -> Vec<PersistenceEntry> {
+    let mut entries = Vec::new();
+
+    let hives: &[(&str, winreg::HKEY)] = &[
+        ("HKLM", HKEY_LOCAL_MACHINE),
+        ("HKCU", HKEY_CURRENT_USER),
+    ];
+
+    for (hive_name, hive) in hives {
+        let root = RegKey::predef(*hive);
+        let components = match root.open_subkey_with_flags(
+            r"SOFTWARE\Microsoft\Active Setup\Installed Components",
+            KEY_READ,
+        ) {
+            Ok(k)  => k,
+            Err(_) => continue,
+        };
+
+        for component_id in components.enum_keys().filter_map(|r| r.ok()) {
+            let comp_key = match components.open_subkey_with_flags(&component_id, KEY_READ) {
+                Ok(k)  => k,
+                Err(_) => continue,
+            };
+
+            let stub_path: String = match comp_key.get_value("StubPath") {
+                Ok(v) => v,
+                Err(_) => continue, // no StubPath = not a persistence entry
+            };
+            if stub_path.trim().is_empty() {
+                continue;
+            }
+
+            // Display name is the default value ("") — fall back to component GUID
+            let name: String = comp_key
+                .get_value("")
+                .unwrap_or_else(|_| component_id.clone());
+
+            entries.push(PersistenceEntry {
+                kind:     PersistenceKind::ActiveSetup,
+                name,
+                command:  expand_env_str(&stub_path),
+                location: format!(
+                    r"{}\SOFTWARE\Microsoft\Active Setup\Installed Components\{}",
+                    hive_name, component_id
+                ),
+                is_new:   false,
+            });
+        }
+    }
+
+    entries
+}
+
 // ── B9: Netsh Helper DLL (T1546.007) ──────────────────────────────────────────
 //
 // Enumerate HKLM\SOFTWARE\Microsoft\NetSh values. Each value points to a
@@ -693,6 +760,7 @@ impl PersistenceDetector for WindowsPersistenceDetector {
             entries.extend(enum_wmi_subscriptions());
             entries.extend(enum_com_hijacking());
             // enum_dll_sideloading() excluded — requires psapi process enumeration
+            entries.extend(enum_active_setup());
             entries.extend(enum_bits_jobs());
             entries.extend(enum_appinit_dlls());
             entries.extend(enum_ifeo_hijacks());

@@ -14,8 +14,8 @@ impl Pattern {
         if p.starts_with('*') && p.ends_with('*') {
             let mid = &p[1..p.len()-1];
             s.contains(mid)
-        } else if p.starts_with('*') {
-            s.ends_with(&p[1..])
+        } else if let Some(suffix) = p.strip_prefix('*') {
+            s.ends_with(suffix)
         } else if p.ends_with('*') {
             s.starts_with(&p[..p.len()-1])
         } else {

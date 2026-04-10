@@ -18,6 +18,12 @@ impl WindowsConnectionMonitor {
     }
 }
 
+impl Default for WindowsConnectionMonitor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Parse one `netstat -ano` line into a `ConnectionInfo`.
 ///
 /// Expected formats (active connections):

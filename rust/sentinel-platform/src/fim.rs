@@ -65,13 +65,11 @@ pub fn build_baseline(paths: &[PathBuf]) -> FimBaseline {
                 }
             } else {
                 // Partial walk — iterate tolerating errors
-                for entry in walkdir::WalkDir::new(path).follow_links(false) {
-                    if let Ok(e) = entry {
-                        let p = e.path().to_path_buf();
-                        if p.is_file() {
-                            if let Some(hash) = sha256_file(&p) {
-                                entries.insert(p, hash);
-                            }
+                for e in walkdir::WalkDir::new(path).follow_links(false).into_iter().flatten() {
+                    let p = e.path().to_path_buf();
+                    if p.is_file() {
+                        if let Some(hash) = sha256_file(&p) {
+                            entries.insert(p, hash);
                         }
                     }
                 }
@@ -129,16 +127,14 @@ pub fn check_baseline(baseline: &FimBaseline, watch_paths: &[PathBuf]) -> Vec<Fi
     // --- Scan watch_paths for newly created files not present in baseline ---
     for watch_path in watch_paths {
         if watch_path.is_dir() {
-            for entry in walkdir::WalkDir::new(watch_path).follow_links(false) {
-                if let Ok(e) = entry {
-                    let p = e.path().to_path_buf();
-                    if p.is_file() && !baseline.entries.contains_key(&p) {
-                        alerts.push(FimAlert {
-                            alert:  make_alert(Severity::High, &p, "New file created", "T1036"),
-                            path:   p.clone(),
-                            reason: FimAlertReason::Created,
-                        });
-                    }
+            for e in walkdir::WalkDir::new(watch_path).follow_links(false).into_iter().flatten() {
+                let p = e.path().to_path_buf();
+                if p.is_file() && !baseline.entries.contains_key(&p) {
+                    alerts.push(FimAlert {
+                        alert:  make_alert(Severity::High, &p, "New file created", "T1036"),
+                        path:   p.clone(),
+                        reason: FimAlertReason::Created,
+                    });
                 }
             }
         } else {
