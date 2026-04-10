@@ -30,6 +30,54 @@ pub fn new_connection_monitor() -> Box<dyn ConnectionMonitor> {
     }
 }
 
+/// Enrich a set of connections with Windows Firewall block status for
+/// lateral-movement ports.  On non-Windows or when the `firewall-check`
+/// feature is disabled this is a no-op.
+pub fn enrich_firewall_status(connections: &mut [sentinel_core::models::connection::ConnectionInfo]) {
+    #[cfg(all(target_os = "windows", feature = "firewall-check"))]
+    {
+        use sentinel_core::models::connection::{ConnState, LATERAL_MOVEMENT_PORTS};
+
+        // Collect the set of LISTEN ports that need a firewall check.
+        let listen_ports: Vec<u16> = connections
+            .iter()
+            .filter(|c| c.state == ConnState::Listen)
+            .filter_map(sentinel_core::models::connection::local_port)
+            .filter(|p| LATERAL_MOVEMENT_PORTS.contains(p))
+            .collect::<std::collections::HashSet<_>>()
+            .into_iter()
+            .collect();
+
+        if listen_ports.is_empty() {
+            return;
+        }
+
+        match windows::firewall::query_firewall_block_status(&listen_ports) {
+            Ok(statuses) => {
+                for conn in connections.iter_mut() {
+                    if conn.state != ConnState::Listen {
+                        continue;
+                    }
+                    let port = match sentinel_core::models::connection::local_port(conn) {
+                        Some(p) => p,
+                        None => continue,
+                    };
+                    if let Some(status) = statuses.iter().find(|s| s.port == port) {
+                        conn.firewall_blocked = Some(status.blocked);
+                    }
+                }
+            }
+            Err(e) => {
+                tracing::warn!("firewall query failed: {e}");
+            }
+        }
+    }
+
+    // Suppress unused-variable warning on non-Windows / feature-disabled builds.
+    #[cfg(not(all(target_os = "windows", feature = "firewall-check")))]
+    let _ = connections;
+}
+
 pub fn new_process_monitor() -> Box<dyn ProcessMonitor> {
     cfg_if::cfg_if! {
         if #[cfg(target_os = "windows")] {

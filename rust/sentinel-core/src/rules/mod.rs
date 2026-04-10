@@ -3,6 +3,7 @@ pub mod lolbin;
 pub mod network;
 pub mod sigma;
 pub mod sigma_condition;
+pub mod tls_fingerprint;
 
 use serde::{Deserialize, Serialize};
 

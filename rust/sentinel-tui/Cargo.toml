@@ -9,7 +9,7 @@ path = "src/main.rs"
 
 [dependencies]
 sentinel-core     = { path = "../sentinel-core" }
-sentinel-platform = { path = "../sentinel-platform" }
+sentinel-platform = { path = "../sentinel-platform", features = ["firewall-check"] }
 chrono            = { workspace = true }
 tokio-stream      = { workspace = true }
 if-addrs          = "0.13"

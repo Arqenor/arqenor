@@ -1,8 +1,8 @@
 # SENTINEL
 
-**Cross-platform host & network security analyzer** — open-core, built in Rust and Go.
+**Open-source EDR (Endpoint Detection & Response)** — cross-platform, built in Rust and Go.
 
-SENTINEL monitors your machine in real time: running processes, filesystem changes, persistence mechanisms (registry keys, scheduled tasks, cron jobs, launch daemons), and local network topology. A terminal UI, CLI scanner, gRPC server, and REST orchestrator ship out of the box.
+SENTINEL gives independent developers, small teams, and security researchers commercial-grade detection capabilities without the $30/endpoint/month price tag. Real-time monitoring of processes, filesystem, network connections, persistence mechanisms, and memory — with SIGMA rules, IOC threat intelligence, YARA scanning, and alert correlation built in.
 
 ```
 ┌──────────────────────────────────────────────────────────┐
@@ -52,15 +52,24 @@ SENTINEL monitors your machine in real time: running processes, filesystem chang
 
 | Category | Capability |
 |---|---|
-| **Processes** | Snapshot + streaming monitor, SHA-256 hashing, risk scoring |
-| **Persistence** | Registry Run keys, Scheduled Tasks, Services (Win) · Cron, Systemd, LD_PRELOAD (Lin) · LaunchDaemon/Agent (Mac) |
-| **Filesystem** | Recursive scan with configurable roots, inotify/FSEvents watch |
-| **Network** | LAN host discovery, port scanning, VPN detection |
-| **Alerts** | Severity-filtered (info → critical), stored in SQLite |
-| **TUI** | Live Ratatui dashboard — Processes / Persistence / Network tabs |
-| **CLI** | `sentinel scan` · `sentinel watch` |
-| **API** | REST (Go/Gin) + gRPC (Rust/Tonic) |
+| **Detection Engine** | 32 LOLBin rules, 3000+ SIGMA community rules, file-path rules, PE static analysis |
+| **Threat Intelligence** | IOC database (abuse.ch feeds: MalwareBazaar, Feodo, URLhaus, ThreatFox), auto-refresh 4h |
+| **Alert Correlation** | PID + parent-child grouping, ATT&CK-weighted scoring, incident model |
+| **Memory Forensics** | VAD walk (shellcode detection), process hollowing, NTDLL hook detection |
+| **YARA Scanning** | In-memory scanning (yara-x, pure Rust): Cobalt Strike, Mimikatz, Sliver, Meterpreter, shellcode |
+| **BYOVD Detection** | 50 known-vulnerable kernel drivers (LOLDrivers.io blocklist) |
+| **Network Analysis** | C2 beaconing (CV scoring), DNS tunneling, DGA detection, JA4 TLS fingerprinting |
+| **Processes** | Snapshot + streaming monitor, SHA-256 hashing, risk scoring, real-time connection monitoring |
+| **Persistence** | Win: Registry, Tasks, Services, WMI, COM, BITS, AppInit, IFEO (B1-B9) · Lin: Cron, Systemd, LD_PRELOAD, PAM, SSH, git hooks (C1-C7) · Mac: LaunchDaemon/Agent, login items, auth plugins |
+| **Filesystem** | FIM baseline + real-time watch (ReadDirectoryChangesW / inotify / ESF) |
+| **Kernel Telemetry** | ETW (10 providers, TDH parsing) · eBPF (5 probes) · ESF (macOS) · WDK kernel driver |
+| **PE Analyzer** | 25+ static features, heuristic scoring, string analysis (sentinel-ml) |
+| **Desktop App** | Tauri v2 + React: Incidents, Memory Forensics, Threat Intel pages |
+| **TUI** | Live Ratatui dashboard with alert streaming |
+| **CLI** | `sentinel scan` · `sentinel watch --sigma-dir --yara-dir --no-ioc` |
+| **API** | REST (Go/Gin) + gRPC (Rust/Tonic) + SSE alert streaming |
 | **Cross-platform** | Windows 10+, Linux, macOS — single codebase via `cfg-if` |
+| **ATT&CK Coverage** | ~140+ techniques across TA0001-TA0011 |
 
 ---
 
@@ -117,26 +126,24 @@ cd go && go build ./cmd/orchestrator && cd ..
 ```
 sentinel/
 ├── rust/
-│   ├── sentinel-core/       # Shared traits & domain models
-│   ├── sentinel-platform/   # Windows / Linux / macOS implementations
+│   ├── sentinel-core/       # Domain nucleus: traits, models, pipeline, rules, IOC, correlation
+│   ├── sentinel-platform/   # Win/Lin/Mac: ETW, ESF, connections, memory scan, YARA, BYOVD
+│   ├── sentinel-ml/         # Static PE analyzer (features, scoring, string analysis)
 │   ├── sentinel-grpc/       # Tonic gRPC server (port 50051)
 │   ├── sentinel-store/      # SQLite persistence layer
 │   ├── sentinel-tui/        # Ratatui terminal dashboard
 │   └── sentinel-cli/        # clap CLI (scan / watch)
+├── sentinel-ebpf/           # Linux eBPF kernel probes (libbpf-rs, 5 probes)
+├── sentinel-driver/         # Windows kernel driver (WDK, minifilter, self-protection)
+├── sentinel-desktop/        # Tauri v2 + React desktop app
 ├── go/
 │   ├── cmd/orchestrator/    # Entry point
-│   ├── internal/api/        # Gin REST handlers
+│   ├── internal/api/        # Gin REST handlers + SSE alert streaming
 │   ├── internal/grpc/       # gRPC client + generated stubs
-│   └── pkg/models/          # Shared Go models
-├── proto/
-│   ├── common.proto
-│   ├── host_analyzer.proto
-│   └── network_scanner.proto
-├── configs/
-│   └── sentinel.toml        # Runtime configuration
-├── scripts/
-│   └── gen-proto.ps1        # Proto codegen helper
-└── data/                    # SQLite database + logs (runtime)
+│   └─��� internal/store/      # Go-side SQLite store
+├── proto/                   # Protobuf definitions
+├── configs/                 # Runtime configuration (sentinel.toml)
+└── docs/                    # Architecture, roadmap, guides
 ```
 
 ---
@@ -194,12 +201,14 @@ Full reference → [`docs/guides/configuration.md`](docs/guides/configuration.md
 
 See [`docs/roadmap/ROADMAP.md`](docs/roadmap/ROADMAP.md) for the full 6-phase plan.
 
-- **Phase 1 — Detection Engine + LOTL Rules** 🟡 *in progress* — LOLBin rules (15 techniques), Windows persistence B1-B9, credential theft detection, FIM, multi-factor scoring, Alerts UI · [`TODO`](docs/roadmap/TODO-phase1.md)
-- **Phase 2 — Kernel Telemetry** ETW (Windows) · eBPF (Linux) · ES framework (macOS)
-- **Phase 3 — Network Deep Inspection** Beaconing detection (RITA) · DNS tunneling · DGA · JA4 fingerprinting
-- **Phase 4 — ML Behavioral** PE features + XGBoost/ONNX · Isolation Forest · SIGMA rule engine · IOC feeds
-- **Phase 5 — Memory Forensics** VAD walk · process hollowing · NTDLL hook detection · YARA-X · BYOVD
-- **Phase 6 — Cloud Fleet** gRPC telemetry · ClickHouse · fleet dashboard · automated response (open-core premium)
+| Phase | Focus | Status |
+|-------|-------|--------|
+| **Phase 1** | Detection Engine + LOTL Rules (32 LOLBin rules, persistence B1-B9/C1-C7, FIM, credential theft) | ✅ Done |
+| **Phase 2** | Kernel Telemetry: ETW (10 providers), eBPF (5 probes), ESF (macOS), WDK driver | ✅ Done |
+| **Phase 3** | Network: C2 beaconing, DNS tunneling, DGA, JA4 TLS fingerprinting, connection monitoring | ✅ Done |
+| **Phase 4** | SIGMA engine (3000+ rules), IOC feeds (abuse.ch), correlation engine, PE static analyzer | ✅ Done (behavioral ML pending) |
+| **Phase 5** | Memory forensics (VAD, hollowing, NTDLL hooks), BYOVD (50 drivers), YARA scanning | ✅ Done |
+| **Phase 6** | Cloud dashboard, fleet management, automated response | Not started |
 
 ---
 
@@ -207,7 +216,7 @@ See [`docs/roadmap/ROADMAP.md`](docs/roadmap/ROADMAP.md) for the full 6-phase pl
 
 SENTINEL is **open-core**:
 
-- **Open source** — `sentinel-core`, `sentinel-platform`, `sentinel-cli`, `sentinel-tui`, `sentinel-grpc`
+- **Open source** — `sentinel-core`, `sentinel-platform`, `sentinel-ml`, `sentinel-cli`, `sentinel-tui`, `sentinel-grpc`, `sentinel-ebpf`, `sentinel-driver`
 - **Closed / commercial** — cloud dashboard, threat intelligence feeds, multi-host management, enterprise alerting
 
 ---

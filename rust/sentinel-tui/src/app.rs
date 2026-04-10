@@ -472,6 +472,7 @@ impl App {
 
         let conn_monitor = new_connection_monitor();
         self.connections = conn_monitor.snapshot().await.unwrap_or_default();
+        sentinel_platform::enrich_firewall_status(&mut self.connections);
 
         // Drop IPv6 LISTEN entries that have an IPv4 counterpart (same pid+port)
         // e.g. keep 0.0.0.0:445 and drop [::]:445 for the same PID

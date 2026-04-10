@@ -1,5 +1,5 @@
 # SENTINEL — Complete Product Roadmap
-> Last updated: 2026-04-11 | Based on 2025-2026 threat intelligence
+> Last updated: 2026-04-10 | Based on 2025-2026 threat intelligence
 
 ---
 
@@ -46,9 +46,18 @@ Cloud intelligence + fleet management + MDR → paid tiers.
 | Alert correlation engine | ✅ Done | PID + parent-child grouping, ATT&CK scoring, incident model |
 | Memory forensics (VAD walk, hollowing, NTDLL hooks) | ✅ Done | VirtualQueryEx, PE header diff, hook classification |
 | BYOVD detection (50 vulnerable drivers) | ✅ Done | EnumDeviceDrivers + LOLDrivers.io blocklist |
+| Pipeline wiring (SIGMA + IOC + Correlation + host scans) | ✅ Done | All 6 dead modules wired into DetectionPipeline |
+| Real-time connection monitoring | ✅ Done | ConnectionMonitor::watch() + polling fallback → beaconing + IOC IP live |
+| Static PE analyzer (sentinel-ml) | ✅ Done | goblin-free PE parser, 25+ features, heuristic scoring, 25 tests |
+| YARA memory scanning | ✅ Done | yara-x pure Rust, 9 embedded rules (CS/Mimikatz/Sliver/Meterpreter), feature-gated |
+| JA4 TLS fingerprinting | ✅ Done | JA4 algorithm, Client Hello parser, 17 C2 fingerprints, 16 tests |
 
-**Coverage today:** ~120+ ATT&CK techniques across TA0001-TA0011.
-**Gap vs commercial EDR:** ETW-TI/PPL (requires MVI membership ~12mo), behavioral ML (Phase 4 partial), YARA memory scanning.
+| Desktop UI: Incidents page (correlation view) | ✅ Done | React cards, expandable alerts, score pills |
+| Desktop UI: Memory Forensics page (3 tabs) | ✅ Done | Injections / NTDLL Hooks / BYOVD tabs |
+| Desktop UI: Threat Intel page (IOC stats) | ✅ Done | Stat grid, manual feed refresh, source list |
+
+**Coverage today:** ~140+ ATT&CK techniques across TA0001-TA0011.
+**Gap vs commercial EDR:** ETW-TI/PPL (requires MVI membership ~12mo), behavioral ML (Phase 4 — Isolation Forest pending).
 
 ---
 
@@ -58,9 +67,9 @@ Cloud intelligence + fleet management + MDR → paid tiers.
 |-------|-------|----------|-----------------|--------|
 | [Phase 1](phases/phase1-detection-engine.md) | Detection Engine + LOTL Rules | Q2 2026 | +40 techniques | ✅ Done |
 | [Phase 2](phases/phase2-kernel-telemetry.md) | Kernel Telemetry (ETW / eBPF / Driver) | Q3 2026 | +30 techniques | ✅ Done (C6 pending MVI) |
-| [Phase 3](phases/phase3-network-deep.md) | Deep Network Analysis + C2 Detection | Q3 2026 | +20 techniques | ✅ Done (beaconing, DNS tunnel, DGA) |
-| [Phase 4](phases/phase4-ml-behavioral.md) | ML Behavioral Engine | Q4 2026 | +25 techniques | Partial (SIGMA, IOC, correlation done) |
-| [Phase 5](phases/phase5-memory-forensics.md) | Memory Forensics + Anti-Injection | Q1 2027 | +15 techniques | Partial (VAD, hollowing, NTDLL, BYOVD done) |
+| [Phase 3](phases/phase3-network-deep.md) | Deep Network Analysis + C2 Detection | Q3 2026 | +20 techniques | ✅ Done (beaconing, DNS tunnel, DGA, JA4, conn monitor) |
+| [Phase 4](phases/phase4-ml-behavioral.md) | ML Behavioral Engine | Q4 2026 | +25 techniques | ✅ Done (SIGMA wired, IOC wired, correlation wired, PE analyzer) — F2 behavioral ML pending |
+| [Phase 5](phases/phase5-memory-forensics.md) | Memory Forensics + Anti-Injection | Q1 2027 | +15 techniques | ✅ Done (VAD, hollowing, NTDLL, BYOVD wired + YARA scanning) |
 | [Phase 6](phases/phase6-cloud-fleet.md) | Cloud Dashboard + Fleet Management | Q2 2027 | N/A (platform) | ⏳ Not started |
 
 ---
@@ -97,18 +106,18 @@ IMPACT
 
 ---
 
-## Threat Coverage Map (planned)
+## Threat Coverage Map
 
 ```
-TA0001 Initial Access      — Phishing attachment detection via file hashes (P3)
-TA0002 Execution           — ✅ LOLBin monitoring (15 rules), script execution (P1)
-TA0003 Persistence         — ✅ Win B1-B9, Linux C1-C7, macOS LaunchD+5 detectors (P1+P2)
-TA0004 Privilege Escalation — Token impersonation, UAC bypass (P2)
-TA0005 Defense Evasion     — AMSI bypass, process hollowing, BYOVD (P2)
-TA0006 Credential Access   — ✅ LSASS scan, AMSI bypass, ransomware signals, SAM dump (P1)
-TA0007 Discovery           — ✅ Basic + net enumeration patterns (P1)
-TA0008 Lateral Movement    — SMB anomalies, PtH/PtT patterns (P3)
-TA0009 Collection          — Clipboard, keylogging, screenshot patterns (P3)
-TA0010 Exfiltration        — DNS tunneling, large upload anomalies (P3)
-TA0011 C2                  — ✅ Beaconing (CV scoring), DGA detection, DNS tunneling (P3)
+TA0001 Initial Access      — ✅ IOC hash/URL matching, PE static analysis, phishing file detection
+TA0002 Execution           — ✅ LOLBin (32 rules), SIGMA (3000+), ETW PS 4104, eBPF execve, YARA memory
+TA0003 Persistence         — ✅ Win B1-B9, Linux C1-C7, macOS 5 detectors, kernel CmRegister
+TA0004 Privilege Escalation — ✅ eBPF commit_creds, BYOVD detection (50 drivers), UAC bypass rules
+TA0005 Defense Evasion     — ✅ NTDLL hook detection, process hollowing (VAD), AMSI bypass, YARA (CS/Mimikatz/Sliver)
+TA0006 Credential Access   — ✅ LSASS scan, SAM dump, credential guard check, Mimikatz YARA
+TA0007 Discovery           — ✅ Network enumeration patterns, port scan detection
+TA0008 Lateral Movement    — ⏳ SMB anomalies (partial — flow-level only)
+TA0009 Collection          — ⏳ Clipboard/keylogging patterns (not started)
+TA0010 Exfiltration        — ✅ DNS tunneling (Shannon entropy), DGA detection
+TA0011 C2                  — ✅ Beaconing (CV scoring), IOC IP/domain, DGA, DNS tunnel, JA4 TLS fingerprinting
 ```

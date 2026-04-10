@@ -105,12 +105,18 @@ Legende : `[ ]` a faire · `[~]` en cours · `[x]` termine
 
 ## SECTION F — Remaining (Phase 3b)
 
-- [ ] **F1** — JA4 TLS fingerprinting (pcap-based)
+- [x] **F1** — JA4 TLS fingerprinting
+  - `tls_fingerprint.rs` : `compute_ja4()`, `parse_client_hello()`, `Ja4Blocklist::builtin()` (17 C2 fingerprints)
+  - Cobalt Strike ×4, Sliver ×2, Metasploit ×2, Havoc, Brute Ratel ×2, PoshC2, Tor ×2, miners
+  - `check_ja4_alerts()` → Alert with prefix + exact matching, 16 tests
 - [ ] **F2** — Lateral movement patterns (SMB workstation-to-workstation)
 - [ ] **F3** — Kerberoasting detection (TGS-REQ anomaly)
 - [ ] **F4** — ARP cache poisoning / rogue gateway detection
-- [ ] **F5** — ConnectionMonitor::watch() polling impl (Win + Linux + macOS)
-- [ ] **F6** — Wire connection watch into CLI `sentinel watch` command
+- [x] **F5** — ConnectionMonitor::watch() polling impl (Win + Linux + macOS)
+  - `spawn_polling_watch()` : polls `snapshot()` every 5s, dedup with HashSet, auto-stops on channel close
+- [x] **F6** — Wire connection watch into CLI `sentinel watch` + gRPC `watch_alerts`
+  - `conn_tx`/`conn_rx` channel, `DetectionPipeline::with_connections()`, fallback to polling if `NotSupported`
+  - C2 beaconing + IOC IP checks now live in real-time
 
 ---
 
@@ -124,4 +130,7 @@ Legende : `[ ]` a faire · `[~]` en cours · `[x]` termine
 | `sentinel-platform` (Windows) | A1-A2 | ✅ |
 | `sentinel-platform` (macOS) | E1-E7 | ✅ |
 | `sentinel-platform` (Windows) | A3 (IPv6) | ⏳ pending |
-| Phase 3b | F1-F6 | ⏳ pending |
+| `sentinel-core` (tls_fingerprint) | F1 | ✅ |
+| `sentinel-core` (connection_monitor) | F5 | ✅ |
+| `sentinel-cli` + `sentinel-grpc` | F6 | ✅ |
+| Phase 3b | F2-F4 | ⏳ pending |

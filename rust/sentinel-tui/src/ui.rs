@@ -875,15 +875,21 @@ fn draw_network(f: &mut Frame, app: &App, area: Rect) {
 // ─── Connections tab ───────────────────────────────────────────────────────────
 
 fn conn_risk_color(c: &sentinel_core::models::connection::ConnectionInfo) -> Option<Color> {
-    use sentinel_core::models::connection::ConnState;
-    let port: u16 = c.local_addr.rsplit(':').next()
-        .and_then(|p| p.trim_end_matches(']').parse().ok())
-        .unwrap_or(0);
+    use sentinel_core::models::connection::{ConnState, ListenRisk, listen_risk_severity, local_port};
+    let port = local_port(c).unwrap_or(0);
+
     if c.state == ConnState::Listen {
-        if matches!(port, 445 | 3389 | 5900 | 23 | 21 | 4444 | 1337) {
-            return Some(C_CRIT);
+        // Use firewall-aware scoring for lateral-movement and risky ports.
+        if let Some(risk) = listen_risk_severity(c) {
+            return match risk {
+                ListenRisk::Critical => Some(C_CRIT),
+                ListenRisk::Low      => Some(C_LOW),
+                ListenRisk::None     => None,
+            };
         }
-        if matches!(port, 135 | 139 | 1433 | 3306 | 5432) {
+        // Ports that are high-risk but not in the lateral-movement set and
+        // don't go through firewall-aware scoring.
+        if matches!(port, 1433 | 3306 | 5432) {
             return Some(C_HIGH);
         }
     }
@@ -894,6 +900,14 @@ fn conn_risk_color(c: &sentinel_core::models::connection::ConnectionInfo) -> Opt
         }
     }
     None
+}
+
+/// Returns a short tag for the firewall column: "[FW]" when blocked, empty otherwise.
+fn firewall_tag(c: &sentinel_core::models::connection::ConnectionInfo) -> &'static str {
+    match c.firewall_blocked {
+        Some(true) => "[FW]",
+        _ => "",
+    }
 }
 
 fn is_external_ip(addr: &str) -> bool {
@@ -929,6 +943,7 @@ fn draw_connections_sidebar(f: &mut Frame, app: &App, area: Rect) {
             || c.remote_addr.as_deref().map(|r| r.starts_with("127.") || r.starts_with("[::1]")).unwrap_or(false)
     }).count();
     let udp         = app.connections.iter().filter(|c| c.proto == P::Udp).count();
+    let fw_blocked  = app.connections.iter().filter(|c| c.firewall_blocked == Some(true)).count();
 
     let lines = vec![
         Line::from(""),
@@ -961,6 +976,11 @@ fn draw_connections_sidebar(f: &mut Frame, app: &App, area: Rect) {
         Line::from(vec![
             Span::styled(format!("  {:>4} ", udp), Style::default().fg(C_MED)),
             Span::styled("UDP", Style::default().fg(C_DIM)),
+        ]),
+        Line::from(vec![
+            Span::styled(format!("  {:>4} ", fw_blocked),
+                Style::default().fg(if fw_blocked > 0 { C_LOW } else { C_DIM })),
+            Span::styled("FW BLOCK", Style::default().fg(C_DIM)),
         ]),
     ];
 
@@ -1024,7 +1044,7 @@ fn draw_connections(f: &mut Frame, app: &mut App, area: Rect) {
         .border_style(Style::default().fg(C_BORDER))
         .title(Span::styled(title_count, Style::default().fg(C_DIM)));
 
-    let header_cells = ["PROTO ", "PID    ", "PROCESS NAME          ", "LOCAL                  ", "REMOTE                 ", "STATE         "]
+    let header_cells = ["PROTO ", "PID    ", "PROCESS NAME          ", "LOCAL                  ", "REMOTE                 ", "STATE         ", "FW  "]
         .iter()
         .map(|h| Cell::from(*h).style(Style::default().fg(C_HEADER).add_modifier(Modifier::BOLD)));
     let header = Row::new(header_cells)
@@ -1071,6 +1091,9 @@ fn draw_connections(f: &mut Frame, app: &mut App, area: Rect) {
             }
         };
 
+        let fw = firewall_tag(c);
+        let fw_color = if fw.is_empty() { C_DIM } else { C_LOW };
+
         Row::new(vec![
             Cell::from(c.proto.to_string()).style(Style::default().fg(proto_color).bg(bg)),
             Cell::from(c.pid.to_string()).style(Style::default().fg(C_DIM).bg(bg)),
@@ -1080,6 +1103,7 @@ fn draw_connections(f: &mut Frame, app: &mut App, area: Rect) {
             Cell::from(local_str).style(Style::default().fg(C_DIM).bg(bg)),
             Cell::from(remote_str).style(Style::default().fg(remote_color).bg(bg)),
             Cell::from(c.state.to_string()).style(Style::default().fg(state_color).bg(bg)),
+            Cell::from(fw).style(Style::default().fg(fw_color).bg(bg)),
         ])
         .height(1)
     }).collect();
@@ -1093,6 +1117,7 @@ fn draw_connections(f: &mut Frame, app: &mut App, area: Rect) {
             Constraint::Length(23), // LOCAL
             Constraint::Length(23), // REMOTE
             Constraint::Length(14), // STATE
+            Constraint::Length(5),  // FW
         ],
     )
     .header(header)

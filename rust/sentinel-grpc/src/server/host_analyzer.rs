@@ -13,19 +13,59 @@ use crate::{
     },
 };
 use sentinel_core::{
+    ioc::{feeds, IocDatabase},
     models::alert::Severity as CoreSeverity,
     pipeline::{DetectionPipeline, PipelineConfig},
+    rules::sigma,
 };
-use sentinel_platform::{new_fs_scanner, new_persistence_detector, new_process_monitor};
-use tokio::sync::mpsc;
+use sentinel_core::traits::connection_monitor::spawn_polling_watch;
+use sentinel_platform::{
+    new_connection_monitor, new_fs_scanner, new_persistence_detector, new_process_monitor,
+};
+use std::sync::Arc;
+use tokio::sync::{mpsc, RwLock};
+
+/// Default connection polling interval in milliseconds (5 seconds).
+const CONN_POLL_INTERVAL_MS: u64 = 5_000;
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{Request, Response, Status};
 
-pub struct HostAnalyzerService;
+/// Shared state initialised once at service startup.
+struct SharedDetectionState {
+    ioc_db: Arc<RwLock<IocDatabase>>,
+    sigma_rules: Vec<sigma::SigmaRule>,
+}
+
+pub struct HostAnalyzerService {
+    shared: Arc<SharedDetectionState>,
+}
 
 impl HostAnalyzerService {
     pub fn new() -> Self {
-        Self
+        let ioc_db = Arc::new(RwLock::new(IocDatabase::new()));
+
+        // Best-effort initial feed load (blocking in constructor is acceptable
+        // because the gRPC server hasn't started accepting yet).
+        let db_clone = Arc::clone(&ioc_db);
+        tokio::spawn(async move {
+            {
+                let mut guard = db_clone.write().await;
+                feeds::refresh_all_feeds(&mut guard).await;
+            }
+            // Refresh every 4 hours.
+            feeds::spawn_feed_refresh_loop(db_clone, std::time::Duration::from_secs(4 * 3600));
+        });
+
+        // Load SIGMA rules from a well-known path if present.
+        let sigma_rules = if std::path::Path::new("sigma-rules").exists() {
+            sigma::load_sigma_rules_from_dir(std::path::Path::new("sigma-rules"))
+        } else {
+            Vec::new()
+        };
+
+        Self {
+            shared: Arc::new(SharedDetectionState { ioc_db, sigma_rules }),
+        }
     }
 }
 
@@ -194,8 +234,9 @@ impl HostAnalyzer for HostAnalyzerService {
     /// Stream real-time detection alerts to the caller.
     ///
     /// On each connection:
-    ///   1. Starts process and filesystem watchers (non-fatal if unsupported).
-    ///   2. Runs the `DetectionPipeline` (LOLBin + sensitive-path rules).
+    ///   1. Starts process, filesystem, and connection watchers (non-fatal).
+    ///   2. Runs the `DetectionPipeline` with all event streams including
+    ///      network connection monitoring for C2 beaconing detection.
     ///   3. Streams resulting `Alert`s until the client disconnects.
     async fn watch_alerts(
         &self,
@@ -203,6 +244,8 @@ impl HostAnalyzer for HostAnalyzerService {
     ) -> Result<Response<Self::WatchAlertsStream>, Status> {
         let (proc_tx, proc_rx) = mpsc::channel(512);
         let (fim_tx,  fim_rx)  = mpsc::channel(512);
+        let (conn_tx, conn_rx) =
+            mpsc::channel::<sentinel_core::models::connection::ConnectionInfo>(512);
         let (core_tx, mut core_rx) =
             mpsc::channel::<sentinel_core::models::alert::Alert>(256);
 
@@ -210,8 +253,28 @@ impl HostAnalyzer for HostAnalyzerService {
         let _ = new_process_monitor().watch(proc_tx).await;
         let _ = new_fs_scanner().watch_path(&default_fim_path(), fim_tx).await;
 
-        // Run the detection pipeline in a background task.
-        let pipeline = DetectionPipeline::new(PipelineConfig::default(), proc_rx, fim_rx, core_tx);
+        // Start connection monitor with fallback to polling.
+        let conn_monitor = new_connection_monitor();
+        match conn_monitor.watch(conn_tx.clone(), CONN_POLL_INTERVAL_MS).await {
+            Ok(()) => {}
+            Err(sentinel_core::error::SentinelError::NotSupported) => {
+                let fallback = new_connection_monitor();
+                spawn_polling_watch(fallback, conn_tx, CONN_POLL_INTERVAL_MS);
+            }
+            Err(_) => {
+                // Connection monitoring unavailable — pipeline will use an
+                // inert conn_rx (sender side dropped).
+            }
+        }
+
+        // Run the detection pipeline with SIGMA + IOC + correlation + connections.
+        let config = PipelineConfig {
+            sigma_rules: self.shared.sigma_rules.clone(),
+            ioc_db: Some(Arc::clone(&self.shared.ioc_db)),
+            ..PipelineConfig::default()
+        };
+        let pipeline =
+            DetectionPipeline::with_connections(config, proc_rx, fim_rx, conn_rx, core_tx);
         tokio::spawn(pipeline.run());
 
         // Bridge core Alert → proto Alert on the stream channel.

@@ -3,6 +3,21 @@ use serde::{Deserialize, Serialize};
 use std::net::IpAddr;
 
 // ---------------------------------------------------------------------------
+// TlsInfo — TLS handshake metadata for fingerprinting
+// ---------------------------------------------------------------------------
+
+/// TLS handshake metadata extracted from a connection.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TlsInfo {
+    /// JA4 fingerprint string (e.g. "t13d1516h2_8daaf6152771_b186095e22b6").
+    pub ja4: String,
+    /// Server Name Indication from the Client Hello.
+    pub server_name: Option<String>,
+    /// Human-readable TLS version (e.g. "TLS 1.3").
+    pub tls_version: String,
+}
+
+// ---------------------------------------------------------------------------
 // FlowKey — unique identifier for a connection flow
 // ---------------------------------------------------------------------------
 

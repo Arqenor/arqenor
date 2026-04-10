@@ -25,22 +25,30 @@
 //! ```
 
 use crate::{
+    correlation::CorrelationEngine,
+    ioc::{checker::IocChecker, IocDatabase},
     models::{
         alert::{Alert, Severity},
         connection::ConnectionInfo,
         file_event::{FileEvent, FileEventKind},
+        incident::Incident,
         network::{FlowKey, FlowRecord},
         process::{ProcessEvent, ProcessEventKind},
     },
-    rules::{self, engine, DetectionRule, Pattern},
+    rules::{
+        self, engine,
+        sigma::{self, EventFields, SigmaRule},
+        DetectionRule, Pattern,
+    },
 };
 use chrono::Utc;
 use std::collections::HashMap;
 use std::net::IpAddr;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::sync::mpsc::{self, Receiver, Sender};
+use tokio::sync::RwLock;
 use uuid::Uuid;
 
 // ── File-path rule ──────────────────────────────────────────────────────────
@@ -125,6 +133,10 @@ pub struct PipelineConfig {
     pub rules: Vec<DetectionRule>,
     /// File-path patterns that generate alerts on creation/modification.
     pub sensitive_paths: Vec<SensitivePathRule>,
+    /// SIGMA rules for process/file/network event evaluation.
+    pub sigma_rules: Vec<SigmaRule>,
+    /// Shared IOC database for threat-intelligence lookups.
+    pub ioc_db: Option<Arc<RwLock<IocDatabase>>>,
 }
 
 impl Default for PipelineConfig {
@@ -132,6 +144,8 @@ impl Default for PipelineConfig {
         Self {
             rules: rules::lolbin::built_in_rules(),
             sensitive_paths: default_sensitive_path_rules(),
+            sigma_rules: Vec::new(),
+            ioc_db: None,
         }
     }
 }
@@ -174,12 +188,16 @@ pub struct PipelineStatsSnapshot {
 /// inside a `tokio::spawn`.  The pipeline exits when all input channels are
 /// closed or `alert_tx` is dropped.
 pub struct DetectionPipeline {
-    config:     PipelineConfig,
-    process_rx: Receiver<ProcessEvent>,
-    file_rx:    Receiver<FileEvent>,
-    conn_rx:    Receiver<ConnectionInfo>,
-    alert_tx:   Sender<Alert>,
-    stats:      Arc<PipelineStats>,
+    config:      PipelineConfig,
+    process_rx:  Receiver<ProcessEvent>,
+    file_rx:     Receiver<FileEvent>,
+    conn_rx:     Receiver<ConnectionInfo>,
+    /// Receives externally-generated alerts (e.g. from host scan tasks).
+    scan_rx:     Receiver<Alert>,
+    alert_tx:    Sender<Alert>,
+    incident_tx: Option<Sender<Incident>>,
+    stats:       Arc<PipelineStats>,
+    correlation: Mutex<CorrelationEngine>,
 }
 
 impl DetectionPipeline {
@@ -189,19 +207,22 @@ impl DetectionPipeline {
         file_rx:    Receiver<FileEvent>,
         alert_tx:   Sender<Alert>,
     ) -> Self {
-        // Create a dummy connection channel that never sends.
-        // The receiver will return None immediately once _dummy_tx is dropped,
-        // which means the select! branch simply stays inert.
-        let (_dummy_tx, conn_rx) = mpsc::channel::<ConnectionInfo>(1);
-        drop(_dummy_tx);
+        // Create dummy channels for optional inputs.
+        let (_dummy_conn, conn_rx) = mpsc::channel::<ConnectionInfo>(1);
+        drop(_dummy_conn);
+        let (_dummy_scan, scan_rx) = mpsc::channel::<Alert>(1);
+        drop(_dummy_scan);
 
         Self {
             config,
             process_rx,
             file_rx,
             conn_rx,
+            scan_rx,
             alert_tx,
+            incident_tx: None,
             stats: Arc::new(PipelineStats::default()),
+            correlation: Mutex::new(CorrelationEngine::new()),
         }
     }
 
@@ -214,14 +235,34 @@ impl DetectionPipeline {
         conn_rx:    Receiver<ConnectionInfo>,
         alert_tx:   Sender<Alert>,
     ) -> Self {
+        let (_dummy_scan, scan_rx) = mpsc::channel::<Alert>(1);
+        drop(_dummy_scan);
+
         Self {
             config,
             process_rx,
             file_rx,
             conn_rx,
+            scan_rx,
             alert_tx,
+            incident_tx: None,
             stats: Arc::new(PipelineStats::default()),
+            correlation: Mutex::new(CorrelationEngine::new()),
         }
+    }
+
+    /// Set an optional channel to receive correlated incidents.
+    pub fn with_incident_channel(mut self, tx: Sender<Incident>) -> Self {
+        self.incident_tx = Some(tx);
+        self
+    }
+
+    /// Set a channel for externally-generated alerts (e.g. from host scan
+    /// tasks like memory scanning, ntdll hook detection, BYOVD).  These
+    /// alerts are fed through correlation and emitted on `alert_tx`.
+    pub fn with_scan_alerts(mut self, rx: Receiver<Alert>) -> Self {
+        self.scan_rx = rx;
+        self
     }
 
     /// Shared handle to pipeline statistics (can be cloned before `run()`).
@@ -242,10 +283,11 @@ impl DetectionPipeline {
         let mut process_open = true;
         let mut file_open    = true;
         let mut conn_open    = true;
+        let mut scan_open    = true;
 
         loop {
             // Exit when all event channels have closed.
-            if !process_open && !file_open && !conn_open {
+            if !process_open && !file_open && !conn_open && !scan_open {
                 break;
             }
 
@@ -275,14 +317,28 @@ impl DetectionPipeline {
                 msg = self.conn_rx.recv(), if conn_open => match msg {
                     Some(conn) => {
                         self.stats.conn_events.fetch_add(1, Ordering::Relaxed);
-                        self.handle_connection(&conn, &mut flow_table);
+                        if !self.handle_connection_event(&conn, &mut flow_table).await {
+                            break;
+                        }
                     }
                     None => {
                         conn_open = false;
                     }
                 },
+                // External scan alerts (memory, ntdll, BYOVD, etc.)
+                msg = self.scan_rx.recv(), if scan_open => match msg {
+                    Some(alert) => {
+                        if !self.emit_alert(alert).await {
+                            break;
+                        }
+                    }
+                    None => {
+                        scan_open = false;
+                    }
+                },
                 _ = analysis_interval.tick() => {
                     self.run_network_analysis(&mut flow_table).await;
+                    self.flush_correlation().await;
                 }
             }
         }
@@ -291,6 +347,7 @@ impl DetectionPipeline {
         if !flow_table.is_empty() {
             self.run_network_analysis(&mut flow_table).await;
         }
+        self.flush_correlation().await;
 
         let snap = self.stats.snapshot();
         tracing::info!(
@@ -308,20 +365,55 @@ impl DetectionPipeline {
             return true;
         }
 
+        let image = evt.process.exe_path.clone().unwrap_or_default();
+        let cmdline = evt.process.cmdline.clone().unwrap_or_default();
+
+        // ── LOLBin / built-in rules ────────────────────────────────────
         let engine_evt = engine::ProcessEvent {
             pid:          evt.process.pid,
-            image:        evt.process.exe_path.clone().unwrap_or_default(),
+            image:        image.clone(),
             name:         evt.process.name.clone(),
-            cmdline:      evt.process.cmdline.clone().unwrap_or_default(),
-            parent_image: None, // Phase 4: parent correlation via process tree cache
+            cmdline:      cmdline.clone(),
+            parent_image: None,
         };
 
         for alert in engine::evaluate_all(&self.config.rules, &engine_evt) {
-            self.stats.alerts_fired.fetch_add(1, Ordering::Relaxed);
-            if self.alert_tx.send(alert).await.is_err() {
+            if !self.emit_alert(alert).await {
                 return false;
             }
         }
+
+        // ── SIGMA rules ────────────────────────────────────────────────
+        if !self.config.sigma_rules.is_empty() {
+            let fields = process_event_to_sigma_fields(evt);
+            for rule in &self.config.sigma_rules {
+                // Only evaluate process_creation rules against process events.
+                let category = rule.logsource.category.as_deref().unwrap_or("");
+                if category != "process_creation" && !category.is_empty() {
+                    continue;
+                }
+                if sigma::evaluate(rule, &fields) {
+                    let alert = sigma_match_to_alert(rule, &fields);
+                    if !self.emit_alert(alert).await {
+                        return false;
+                    }
+                }
+            }
+        }
+
+        // ── IOC check on process image hash ────────────────────────────
+        if let Some(ref sha256) = evt.process.sha256 {
+            if let Some(ref ioc_db) = self.config.ioc_db {
+                let db = ioc_db.read().await;
+                let checker = IocChecker::new(&db);
+                if let Some(alert) = checker.check_file_hash(sha256, &image) {
+                    if !self.emit_alert(alert).await {
+                        return false;
+                    }
+                }
+            }
+        }
+
         true
     }
 
@@ -339,10 +431,9 @@ impl DetectionPipeline {
             FileEventKind::Deleted  => "deleted",
         };
 
+        // ── Sensitive path rules ───────────────────────────────────────
         for rule in &self.config.sensitive_paths {
             if rule.pattern.matches(&evt.path) {
-                self.stats.alerts_fired.fetch_add(1, Ordering::Relaxed);
-
                 let mut metadata = HashMap::new();
                 metadata.insert("path".into(), evt.path.clone());
                 metadata.insert("action".into(), kind_str.into());
@@ -361,11 +452,45 @@ impl DetectionPipeline {
                     attack_id:   Some(rule.attack_id.into()),
                 };
 
-                if self.alert_tx.send(alert).await.is_err() {
+                if !self.emit_alert(alert).await {
                     return false;
                 }
             }
         }
+
+        // ── SIGMA file_event rules ─────────────────────────────────────
+        if !self.config.sigma_rules.is_empty() {
+            let fields = file_event_to_sigma_fields(evt);
+            for rule in &self.config.sigma_rules {
+                let category = rule.logsource.category.as_deref().unwrap_or("");
+                if category != "file_event" && !category.is_empty() {
+                    continue;
+                }
+                if category.is_empty() {
+                    continue; // don't evaluate uncategorized rules against file events
+                }
+                if sigma::evaluate(rule, &fields) {
+                    let alert = sigma_match_to_alert(rule, &fields);
+                    if !self.emit_alert(alert).await {
+                        return false;
+                    }
+                }
+            }
+        }
+
+        // ── IOC hash check ─────────────────────────────────────────────
+        if let Some(ref sha256) = evt.sha256 {
+            if let Some(ref ioc_db) = self.config.ioc_db {
+                let db = ioc_db.read().await;
+                let checker = IocChecker::new(&db);
+                if let Some(alert) = checker.check_file_hash(sha256, &evt.path) {
+                    if !self.emit_alert(alert).await {
+                        return false;
+                    }
+                }
+            }
+        }
+
         true
     }
 
@@ -391,6 +516,49 @@ impl DetectionPipeline {
         }
     }
 
+    // ── Alert emission + correlation ──────────────────────────────────────
+
+    /// Send an alert on the output channel and ingest it into the correlation
+    /// engine.  Returns `false` if the alert channel is closed.
+    async fn emit_alert(&self, alert: Alert) -> bool {
+        self.stats.alerts_fired.fetch_add(1, Ordering::Relaxed);
+
+        // Ingest into correlation engine.
+        let escalated_incident = {
+            let mut corr = self.correlation.lock().unwrap();
+            corr.ingest(alert.clone()).cloned()
+        };
+
+        // If correlation detected a severity escalation, emit the incident.
+        if let Some(incident) = escalated_incident {
+            if let Some(ref tx) = self.incident_tx {
+                let _ = tx.send(incident).await;
+            }
+        }
+
+        self.alert_tx.send(alert).await.is_ok()
+    }
+
+    /// Flush stale incidents from the correlation engine and emit them.
+    async fn flush_correlation(&self) {
+        let flushed = {
+            let mut corr = self.correlation.lock().unwrap();
+            corr.flush_stale()
+        };
+
+        if let Some(ref tx) = self.incident_tx {
+            for incident in flushed {
+                let _ = tx.send(incident).await;
+            }
+        }
+    }
+
+    /// Return a snapshot of active incidents from the correlation engine.
+    pub fn active_incidents(&self) -> Vec<Incident> {
+        let corr = self.correlation.lock().unwrap();
+        corr.active_incidents().into_iter().cloned().collect()
+    }
+
     // ── Network / connection handling ───────────────────────────────────────
 
     /// Parse an address string ("ip:port", "[ipv6]:port", or bare "ip") into
@@ -404,27 +572,26 @@ impl DetectionPipeline {
         s.parse::<IpAddr>().ok().map(|ip| (ip, 0))
     }
 
-    /// Upsert a connection event into the flow table.
+    /// Upsert a connection event into the flow table and check IOCs.
     ///
-    /// Only connections with a `remote_addr` (i.e. not LISTEN / local-only)
-    /// are tracked — those are the ones relevant for C2 beaconing analysis.
-    fn handle_connection(
+    /// Returns `false` if alert_tx is closed (caller should break).
+    async fn handle_connection_event(
         &self,
         conn: &ConnectionInfo,
         flow_table: &mut HashMap<FlowKey, FlowRecord>,
-    ) {
+    ) -> bool {
         let remote_str = match conn.remote_addr.as_deref() {
             Some(r) if !r.is_empty() => r,
-            _ => return, // skip listen / local-only
+            _ => return true, // skip listen / local-only
         };
 
         let (src_ip, _src_port) = match Self::parse_addr(&conn.local_addr) {
             Some(v) => v,
-            None => return,
+            None => return true,
         };
         let (dst_ip, dst_port) = match Self::parse_addr(remote_str) {
             Some(v) => v,
-            None => return,
+            None => return true,
         };
 
         let key = FlowKey {
@@ -451,6 +618,20 @@ impl DetectionPipeline {
                 conn_count: 1,
                 timestamps: vec![now],
             });
+
+        // ── IOC IP check ───────────────────────────────────────────────
+        if let Some(ref ioc_db) = self.config.ioc_db {
+            let db = ioc_db.read().await;
+            let checker = IocChecker::new(&db);
+            if let Some(mut alert) = checker.check_connection(dst_ip, dst_port) {
+                alert.metadata.insert("pid".into(), conn.pid.to_string());
+                if !self.emit_alert(alert).await {
+                    return false;
+                }
+            }
+        }
+
+        true
     }
 
     /// Periodic network analysis: beacon detection (and future DNS analysis).
@@ -513,8 +694,6 @@ impl DetectionPipeline {
             let score = (1.0 - cv).clamp(0.0, 1.0);
 
             if score >= 0.7 {
-                self.stats.alerts_fired.fetch_add(1, Ordering::Relaxed);
-
                 let severity = if score >= 0.9 {
                     Severity::Critical
                 } else if score >= 0.8 {
@@ -555,7 +734,7 @@ impl DetectionPipeline {
                     attack_id: Some("T1071.001".into()),
                 };
 
-                if self.alert_tx.send(alert).await.is_err() {
+                if !self.emit_alert(alert).await {
                     return; // alert channel closed
                 }
             }
@@ -570,11 +749,25 @@ impl DetectionPipeline {
 /// Prefer [`DetectionPipeline`] for full control.
 pub struct DetectionEngine {
     rules: Vec<DetectionRule>,
+    sigma_rules: Vec<SigmaRule>,
+    ioc_db: Option<Arc<RwLock<IocDatabase>>>,
 }
 
 impl DetectionEngine {
     pub fn new(rules: Vec<DetectionRule>) -> Self {
-        Self { rules }
+        Self { rules, sigma_rules: Vec::new(), ioc_db: None }
+    }
+
+    /// Add SIGMA rules to the engine.
+    pub fn with_sigma_rules(mut self, rules: Vec<SigmaRule>) -> Self {
+        self.sigma_rules = rules;
+        self
+    }
+
+    /// Attach an IOC database for threat-intelligence lookups.
+    pub fn with_ioc_db(mut self, db: Arc<RwLock<IocDatabase>>) -> Self {
+        self.ioc_db = Some(db);
+        self
     }
 
     /// Spawn the pipeline and return a handle to its stats.
@@ -587,10 +780,73 @@ impl DetectionEngine {
         let config = PipelineConfig {
             rules: self.rules,
             sensitive_paths: default_sensitive_path_rules(),
+            sigma_rules: self.sigma_rules,
+            ioc_db: self.ioc_db,
         };
         let pipeline = DetectionPipeline::new(config, process_rx, fim_rx, alert_tx);
         let stats = pipeline.stats();
         tokio::spawn(pipeline.run());
         stats
+    }
+}
+
+// ── SIGMA field converters ─────────────────────────────────────────────────
+
+/// Convert a [`ProcessEvent`] to SIGMA-compatible [`EventFields`].
+fn process_event_to_sigma_fields(evt: &ProcessEvent) -> EventFields {
+    let mut fields = EventFields::new();
+    fields.insert("pid".into(), evt.process.pid.to_string());
+    fields.insert("ppid".into(), evt.process.ppid.to_string());
+    if let Some(ref path) = evt.process.exe_path {
+        fields.insert("image_path".into(), path.clone());
+    }
+    fields.insert("name".into(), evt.process.name.clone());
+    if let Some(ref cmd) = evt.process.cmdline {
+        fields.insert("cmdline".into(), cmd.clone());
+    }
+    if let Some(ref user) = evt.process.user {
+        fields.insert("user".into(), user.clone());
+    }
+    if let Some(ref sha) = evt.process.sha256 {
+        fields.insert("sha256".into(), sha.clone());
+    }
+    fields
+}
+
+/// Convert a [`FileEvent`] to SIGMA-compatible [`EventFields`].
+fn file_event_to_sigma_fields(evt: &FileEvent) -> EventFields {
+    let mut fields = EventFields::new();
+    fields.insert("file_path".into(), evt.path.clone());
+    fields.insert("event_type".into(), match evt.kind {
+        FileEventKind::Created  => "created".into(),
+        FileEventKind::Modified => "modified".into(),
+        FileEventKind::Renamed  => "renamed".into(),
+        FileEventKind::Deleted  => "deleted".into(),
+    });
+    if let Some(ref sha) = evt.sha256 {
+        fields.insert("sha256".into(), sha.clone());
+    }
+    fields
+}
+
+/// Build an [`Alert`] from a matched SIGMA rule.
+fn sigma_match_to_alert(rule: &SigmaRule, fields: &EventFields) -> Alert {
+    let attack_id = rule.attack_ids.first().cloned();
+    let mut metadata: HashMap<String, String> = fields.clone();
+    metadata.insert("sigma_rule_id".into(), rule.id.clone());
+    metadata.insert("sigma_title".into(), rule.title.clone());
+    if let Some(ref desc) = rule.description {
+        metadata.insert("sigma_description".into(), desc.clone());
+    }
+
+    Alert {
+        id: Uuid::new_v4(),
+        severity: rule.level.to_severity(),
+        kind: "sigma_match".into(),
+        message: format!("SIGMA: {}", rule.title),
+        occurred_at: Utc::now(),
+        metadata,
+        rule_id: Some(rule.id.clone()),
+        attack_id,
     }
 }

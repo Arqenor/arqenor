@@ -140,6 +140,7 @@ fn tcp_row_to_connection(row: &MIB_TCPROW_OWNER_PID) -> ConnectionInfo {
         local_addr: format!("{local_ip}:{local_port}"),
         remote_addr,
         state,
+        firewall_blocked: None,
     }
 }
 
@@ -217,6 +218,7 @@ fn udp_row_to_connection(row: &MIB_UDPROW_OWNER_PID) -> ConnectionInfo {
         local_addr: format!("{local_ip}:{local_port}"),
         remote_addr: None,
         state: ConnState::Other("STATELESS".into()),
+        firewall_blocked: None,
     }
 }
 

@@ -198,6 +198,7 @@ fn collect_connections(inode_map: &HashMap<u64, u32>) -> Vec<ConnectionInfo> {
                 local_addr: e.local_addr,
                 remote_addr,
                 state: e.state,
+                firewall_blocked: None,
             });
         }
     }

@@ -7,6 +7,7 @@ members = [
     "rust/sentinel-store",
     "rust/sentinel-tui",
     "rust/sentinel-cli",
+    "rust/sentinel-ml",
     "sentinel-desktop/src-tauri",
     "sentinel-ebpf",           # Phase 2 — Linux eBPF kernel telemetry (B2-B6)
 ]
@@ -61,4 +62,7 @@ features = [
     "Win32_System_Diagnostics_Debug",
     "Win32_System_ProcessStatus",
     "Win32_System_LibraryLoader",
+    "Win32_NetworkManagement_WindowsFirewall",
+    "Win32_System_Ole",
+    "Win32_System_Variant",
 ]

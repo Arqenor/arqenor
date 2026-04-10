@@ -6,8 +6,14 @@ pub mod driver_bridge;
 pub mod etw_consumer;
 pub mod etw_monitor;
 pub mod etw_tdh;
+#[cfg(feature = "firewall-check")]
+pub mod firewall;
 pub mod fs_scanner;
 pub mod memory_scan;
 pub mod ntdll_check;
 pub mod persistence;
 pub mod process_monitor;
+#[cfg(feature = "yara")]
+pub mod yara_rules;
+#[cfg(feature = "yara")]
+pub mod yara_scan;
