@@ -22,15 +22,9 @@ cfg-if        = "1"
 windows = { workspace = true }
 winreg  = "0.52"
 wmi     = "0.14"
-yara-x  = { version = "1.14", optional = true }
-tokio-stream = { workspace = true, optional = true }
-arqenor-driver-client = { path = "../../arqenor-driver/client", optional = true }
-arqenor-driver-common = { path = "../../arqenor-driver/common", optional = true, features = ["std"] }
 
 [features]
 default = []
-yara = ["yara-x"]
-kernel-driver = ["arqenor-driver-client", "arqenor-driver-common", "tokio-stream"]
 firewall-check = []
 
 [target.'cfg(target_os = "linux")'.dependencies]

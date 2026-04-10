@@ -7,11 +7,6 @@ edition = "2021"
 name = "arqenor"
 path = "src/main.rs"
 
-[features]
-default = []
-yara = ["arqenor-platform/yara"]
-kernel-driver = ["arqenor-platform/kernel-driver"]
-
 [dependencies]
 arqenor-core     = { path = "../arqenor-core" }
 arqenor-platform = { path = "../arqenor-platform" }

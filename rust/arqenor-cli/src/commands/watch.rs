@@ -37,11 +37,6 @@ pub struct WatchArgs {
     #[arg(long)]
     pub no_ioc: bool,
 
-    /// Directory containing custom YARA rule files (.yar/.yara).
-    /// Built-in rules are always loaded; custom rules supplement them.
-    #[cfg(feature = "yara")]
-    #[arg(long)]
-    pub yara_dir: Option<PathBuf>,
 }
 
 pub async fn run(args: WatchArgs) -> Result<()> {
@@ -91,39 +86,11 @@ pub async fn run(args: WatchArgs) -> Result<()> {
 
     // ── Start platform watchers (non-fatal if unsupported) ───────────────────
     //
-    // On Windows with the kernel-driver feature, the driver bridge provides
-    // kernel-level process + file telemetry that supersedes the usermode
-    // watchers (EvtSubscribe / ReadDirectoryChangesW). If the driver is loaded,
-    // we use it; otherwise fall back to the standard watchers.
-    #[cfg(all(target_os = "windows", feature = "kernel-driver"))]
-    let driver_active = {
-        use arqenor_platform::windows::driver_bridge::{DriverBridgeConfig, DriverBridgeSenders};
-        let senders = DriverBridgeSenders {
-            process_tx: proc_tx.clone(),
-            file_tx:    fim_tx.clone(),
-            alert_tx:   alert_tx.clone(),
-        };
-        match arqenor_platform::start_driver_bridge(DriverBridgeConfig::default(), senders).await {
-            Ok(()) => {
-                println!("  kernel driver: connected (\\ArqenorPort)");
-                true
-            }
-            Err(e) => {
-                warn!("kernel driver unavailable: {e} — falling back to usermode");
-                false
-            }
-        }
-    };
-    #[cfg(not(all(target_os = "windows", feature = "kernel-driver")))]
-    let driver_active = false;
-
-    if !driver_active {
-        if let Err(e) = new_process_monitor().watch(proc_tx).await {
-            warn!("process watcher unavailable: {e}");
-        }
-        if let Err(e) = new_fs_scanner().watch_path(&watch_path, fim_tx).await {
-            warn!("FIM watcher unavailable: {e}");
-        }
+    if let Err(e) = new_process_monitor().watch(proc_tx).await {
+        warn!("process watcher unavailable: {e}");
+    }
+    if let Err(e) = new_fs_scanner().watch_path(&watch_path, fim_tx).await {
+        warn!("FIM watcher unavailable: {e}");
     }
 
     // ── Start connection monitor (non-fatal if unsupported) ─────────────────
@@ -157,14 +124,9 @@ pub async fn run(args: WatchArgs) -> Result<()> {
     let stats    = pipeline.stats();
     tokio::spawn(pipeline.run());
 
-    // ── Periodic host scans (Windows: memory, ntdll hooks, BYOVD, YARA) ──
+    // ── Periodic host scans (Windows: memory, ntdll hooks, BYOVD) ────────
     #[cfg(target_os = "windows")]
     {
-        #[cfg(feature = "yara")]
-        let yara_dir = args.yara_dir.clone();
-        #[cfg(feature = "yara")]
-        tokio::spawn(run_windows_host_scans(scan_tx, yara_dir));
-        #[cfg(not(feature = "yara"))]
         tokio::spawn(run_windows_host_scans(scan_tx));
     }
     #[cfg(not(target_os = "windows"))]
@@ -259,50 +221,17 @@ fn print_alert(a: &Alert) {
 
 // ── Windows host scans ──────────────────────────────────────────────────────
 
-/// Periodically run memory scans, ntdll hook checks, BYOVD detection, and
-/// YARA memory scanning, pushing any resulting alerts into the pipeline via
-/// `scan_tx`.
+/// Periodically run memory scans, ntdll hook checks, and BYOVD detection,
+/// pushing any resulting alerts into the pipeline via `scan_tx`.
 #[cfg(target_os = "windows")]
 async fn run_windows_host_scans(
     scan_tx: mpsc::Sender<Alert>,
-    #[cfg(feature = "yara")] yara_dir: Option<PathBuf>,
 ) {
     use chrono::Utc;
     use arqenor_core::models::alert::Severity as Sev;
     use arqenor_platform::windows::{byovd, memory_scan, ntdll_check};
     use std::collections::HashMap;
     use uuid::Uuid;
-
-    // ── Compile YARA rules once at startup ──────────────────────────────
-    #[cfg(feature = "yara")]
-    let yara_scanner = {
-        use arqenor_platform::windows::{yara_rules, yara_scan};
-        // Start with built-in rules.
-        let mut scanner = match yara_scan::YaraScanner::from_source(yara_rules::EMBEDDED_RULES) {
-            Ok(s) => {
-                tracing::info!("YARA: built-in rules compiled successfully");
-                Some(s)
-            }
-            Err(e) => {
-                warn!("YARA: failed to compile built-in rules: {e}");
-                None
-            }
-        };
-        // If a custom rules directory was provided, try to load from there instead
-        // (custom dir includes all rules, overriding built-in).
-        if let Some(ref dir) = yara_dir {
-            match yara_scan::YaraScanner::from_rules_dir(dir) {
-                Ok(s) => {
-                    tracing::info!(dir = %dir.display(), "YARA: loaded custom rules");
-                    scanner = Some(s);
-                }
-                Err(e) => {
-                    warn!(dir = %dir.display(), error = %e, "YARA: failed to load custom rules, using built-in only");
-                }
-            }
-        }
-        scanner.map(std::sync::Arc::new)
-    };
 
     let mut interval = tokio::time::interval(std::time::Duration::from_secs(300));
     interval.tick().await; // skip first immediate tick
@@ -403,51 +332,5 @@ async fn run_windows_host_scans(
             }
         }
 
-        // ── YARA memory scan ──────────────────────────────────────────
-        #[cfg(feature = "yara")]
-        if let Some(ref scanner) = yara_scanner {
-            // YaraScanner::scan_all does CPU-heavy work; run it on the
-            // blocking pool.  Arc clone is cheap -- only the refcount bumps.
-            let sc = std::sync::Arc::clone(scanner);
-            let results = tokio::task::spawn_blocking(move || sc.scan_all()).await;
-            if let Ok(results) = results {
-                for result in results {
-                    for m in &result.matches {
-                        let mut meta = HashMap::new();
-                        meta.insert("pid".into(), m.pid.to_string());
-                        meta.insert("image_path".into(), result.image_path.clone());
-                        meta.insert("rule_name".into(), m.rule_name.clone());
-                        meta.insert("region_base".into(), format!("0x{:x}", m.region_base));
-                        meta.insert("region_size".into(), m.region_size.to_string());
-                        if !m.rule_tags.is_empty() {
-                            meta.insert("rule_tags".into(), m.rule_tags.join(", "));
-                        }
-
-                        let severity = match m.severity.as_deref() {
-                            Some(s) if s.contains("critical") => Sev::Critical,
-                            Some(s) if s.contains("high") => Sev::High,
-                            Some(s) if s.contains("medium") => Sev::Medium,
-                            Some(s) if s.contains("low") => Sev::Low,
-                            _ => Sev::Critical,
-                        };
-
-                        let alert = Alert {
-                            id: Uuid::new_v4(),
-                            severity,
-                            kind: "yara_match".into(),
-                            message: format!(
-                                "YARA: {} in PID {} ({}) at 0x{:x}",
-                                m.rule_name, m.pid, result.image_path, m.region_base,
-                            ),
-                            occurred_at: Utc::now(),
-                            metadata: meta,
-                            rule_id: Some(m.rule_name.clone()),
-                            attack_id: m.attack_id.clone(),
-                        };
-                        if scan_tx.send(alert).await.is_err() { return; }
-                    }
-                }
-            }
-        }
     }
 }
