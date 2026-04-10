@@ -1,6 +1,6 @@
 syntax = "proto3";
-package sentinel.host;
-option go_package = "sentinel/go/internal/grpc/generated;sentinelgrpc";
+package arqenor.host;
+option go_package = "arqenor/go/internal/grpc/generated;arqenorgrpc";
 
 import "common.proto";
 import "google/protobuf/timestamp.proto";
@@ -71,5 +71,5 @@ service HostAnalyzer {
   rpc WatchFilesystem(ScanRequest)              returns (stream FileEvent);
   rpc GetPersistence(google.protobuf.Empty)     returns (PersistenceResponse);
   rpc Health(google.protobuf.Empty)             returns (HealthResponse);
-  rpc WatchAlerts(google.protobuf.Empty)        returns (stream sentinel.common.Alert);
+  rpc WatchAlerts(google.protobuf.Empty)        returns (stream arqenor.common.Alert);
 }

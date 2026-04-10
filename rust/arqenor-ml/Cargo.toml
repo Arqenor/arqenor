@@ -1,0 +1,15 @@
+[package]
+name    = "arqenor-ml"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+arqenor-core = { path = "../arqenor-core" }
+serde         = { workspace = true }
+tracing       = { workspace = true }
+sha2          = { workspace = true }
+hex           = { workspace = true }
+thiserror     = { workspace = true }
+chrono        = { workspace = true }
+uuid          = { workspace = true }
+regex         = "1"

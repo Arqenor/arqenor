@@ -1,6 +1,6 @@
-# Guide : Tester le Kernel Driver SENTINEL sur VM
+# Guide : Tester le Kernel Driver ARQENOR sur VM
 
-> Ce guide couvre l'installation et le test de `sentinel_driver.sys` sur une VM
+> Ce guide couvre l'installation et le test de `arqenor_driver.sys` sur une VM
 > Windows en mode test signing. Aucun certificat payant n'est requis.
 
 ---
@@ -11,7 +11,7 @@
 
 | Outil | Version | Installation |
 |-------|---------|-------------|
-| **Rust nightly** | Auto via `rust-toolchain.toml` | Le workspace `sentinel-driver/` force nightly |
+| **Rust nightly** | Auto via `rust-toolchain.toml` | Le workspace `arqenor-driver/` force nightly |
 | **WDK (Windows Driver Kit)** | 10.0.26100+ | [Download WDK](https://learn.microsoft.com/en-us/windows-hardware/drivers/download-the-wdk) |
 | **Visual Studio Build Tools** | 2022+ | Workload "Desktop dev with C++" (pour `link.exe`) |
 | **LLVM 17** | 17.0.6 | [LLVM Releases](https://github.com/llvm/llvm-project/releases/tag/llvmorg-17.0.6) — LLVM 18 casse bindgen ARM64 |
@@ -62,7 +62,7 @@ Redemarrer apres.
 Driver Verifier detecte les bugs kernel (pool corruption, IRQL violations, etc.) :
 
 ```powershell
-verifier /standard /driver sentinel_driver.sys
+verifier /standard /driver arqenor_driver.sys
 ```
 
 **Attention :** active verifier = plus de BSOD sur le moindre bug. Desactive-le si tu veux juste tester fonctionnellement :
@@ -78,7 +78,7 @@ verifier /reset
 Sur ta machine de dev :
 
 ```powershell
-cd D:\dev\SENTINEL\sentinel-driver
+cd D:\dev\ARQENOR\arqenor-driver
 
 # Verifier que LLVM 17 est dans le PATH
 $env:LIBCLANG_PATH = "C:\Program Files\LLVM\bin"
@@ -91,14 +91,14 @@ cargo make build-driver-release
 ```
 
 Le fichier produit :
-- Debug : `sentinel-driver/target/debug/sentinel_driver.sys`
-- Release : `sentinel-driver/target/release/sentinel_driver.sys`
+- Debug : `arqenor-driver/target/debug/arqenor_driver.sys`
+- Release : `arqenor-driver/target/release/arqenor_driver.sys`
 
 ### Verifier la compilation
 
 ```powershell
 # Le .sys doit exister et faire ~100-500 KB
-ls target\debug\sentinel_driver.sys
+ls target\debug\arqenor_driver.sys
 ```
 
 ---
@@ -118,20 +118,20 @@ Cela utilise le certificat WDK Test integre. Si ca echoue, cree un cert manuelle
 ```powershell
 # Creer un cert auto-signe (une seule fois)
 # Ouvre "Developer Command Prompt for VS 2022" en admin :
-makecert -r -pe -ss PrivateCertStore -n "CN=SENTINEL Dev Test" sentinel_test.cer
+makecert -r -pe -ss PrivateCertStore -n "CN=ARQENOR Dev Test" arqenor_test.cer
 
 # Installer le cert dans le magasin de certificats root de la VM
-certutil -addstore Root sentinel_test.cer
-certutil -addstore TrustedPublisher sentinel_test.cer
+certutil -addstore Root arqenor_test.cer
+certutil -addstore TrustedPublisher arqenor_test.cer
 
 # Signer le .sys
-signtool sign /s PrivateCertStore /n "SENTINEL Dev Test" /fd sha256 target\debug\sentinel_driver.sys
+signtool sign /s PrivateCertStore /n "ARQENOR Dev Test" /fd sha256 target\debug\arqenor_driver.sys
 ```
 
 ### Verifier la signature
 
 ```powershell
-signtool verify /v /pa target\debug\sentinel_driver.sys
+signtool verify /v /pa target\debug\arqenor_driver.sys
 # Doit afficher "Successfully verified"
 ```
 
@@ -139,11 +139,11 @@ signtool verify /v /pa target\debug\sentinel_driver.sys
 
 ## Etape 4 — Copier sur la VM
 
-Copie `sentinel_driver.sys` sur la VM. Par exemple :
+Copie `arqenor_driver.sys` sur la VM. Par exemple :
 
 ```powershell
 # Partage de dossier, ou :
-copy target\debug\sentinel_driver.sys \\VM_NAME\C$\Drivers\sentinel_driver.sys
+copy target\debug\arqenor_driver.sys \\VM_NAME\C$\Drivers\arqenor_driver.sys
 ```
 
 Ou si tu utilises un dossier partage VMware/VirtualBox/Hyper-V, copie directement.
@@ -156,15 +156,15 @@ Dans la VM, PowerShell **admin** :
 
 ```powershell
 # Installer le driver (mode demarrage manuel = "demand")
-sc.exe create SentinelDriver type= kernel start= demand binPath= "C:\Drivers\sentinel_driver.sys"
+sc.exe create ArqenorDriver type= kernel start= demand binPath= "C:\Drivers\arqenor_driver.sys"
 
 # Demarrer le driver
-sc.exe start SentinelDriver
+sc.exe start ArqenorDriver
 ```
 
 **Si ca marche :**
 ```
-SERVICE_NAME: SentinelDriver
+SERVICE_NAME: ArqenorDriver
         TYPE               : 1  KERNEL_DRIVER
         STATE              : 4  RUNNING
 ```
@@ -177,26 +177,26 @@ SERVICE_NAME: SentinelDriver
 ### Verifier que le port IPC est cree
 
 ```powershell
-# Le driver cree \SentinelPort — si ce nom apparait dans les handles, c'est bon
-# Methode simple : essayer de se connecter depuis SENTINEL
+# Le driver cree \ArqenorPort — si ce nom apparait dans les handles, c'est bon
+# Methode simple : essayer de se connecter depuis ARQENOR
 ```
 
 ---
 
-## Etape 6 — Lancer SENTINEL avec le driver
+## Etape 6 — Lancer ARQENOR avec le driver
 
 Sur la VM (ou en remote si le code est accessible) :
 
 ```powershell
-cd D:\dev\SENTINEL
-cargo run -p sentinel-cli --features kernel-driver -- watch
+cd D:\dev\ARQENOR
+cargo run -p arqenor-cli --features kernel-driver -- watch
 ```
 
 **Sortie attendue :**
 
 ```
-  kernel driver: connected (\SentinelPort)
-SENTINEL watch — 16 process rules, 9 file rules | FIM: C:\Windows\System32 | db: sentinel.db
+  kernel driver: connected (\ArqenorPort)
+ARQENOR watch — 16 process rules, 9 file rules | FIM: C:\Windows\System32 | db: arqenor.db
 Press Ctrl-C to stop.
 ────────────────────────────────────────────────────────────────────────
 
@@ -228,10 +228,10 @@ reg delete "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Run" /v TestMalware /
 
 ```powershell
 # Arreter le driver
-sc.exe stop SentinelDriver
+sc.exe stop ArqenorDriver
 
 # Supprimer le service
-sc.exe delete SentinelDriver
+sc.exe delete ArqenorDriver
 
 # (Optionnel) Desactiver le test signing
 bcdedit /set testsigning off
@@ -242,7 +242,7 @@ bcdedit /set testsigning off
 
 ## Commandes cargo make (raccourcis)
 
-Toutes ces commandes s'executent depuis `sentinel-driver/` :
+Toutes ces commandes s'executent depuis `arqenor-driver/` :
 
 | Commande | Description |
 |----------|-------------|
@@ -264,7 +264,7 @@ Toutes ces commandes s'executent depuis `sentinel-driver/` :
 ### BSOD au demarrage du driver
 
 1. Redemarrer la VM en mode sans echec : `bcdedit /set {current} safeboot minimal`
-2. Supprimer le driver : `sc delete SentinelDriver`
+2. Supprimer le driver : `sc delete ArqenorDriver`
 3. Redemarrer normal : `bcdedit /deletevalue {current} safeboot`
 4. Analyser le dump : `C:\Windows\MEMORY.DMP` ou `C:\Windows\Minidump\*.dmp`
 5. Ouvrir dans WinDbg : `!analyze -v`
@@ -277,18 +277,18 @@ bcdedit | findstr testsigning
 # Doit afficher: testsigning   Yes
 
 # Verifier que le cert est installe
-certutil -store Root | findstr SENTINEL
+certutil -store Root | findstr ARQENOR
 ```
 
-### Le driver demarre mais SENTINEL ne se connecte pas
+### Le driver demarre mais ARQENOR ne se connecte pas
 
 ```powershell
 # Verifier que le driver tourne
-sc.exe query SentinelDriver
+sc.exe query ArqenorDriver
 # STATE doit etre RUNNING
 
 # Verifier les event logs pour des erreurs driver
-Get-WinEvent -LogName System -MaxEvents 20 | Where-Object { $_.Message -like "*Sentinel*" }
+Get-WinEvent -LogName System -MaxEvents 20 | Where-Object { $_.Message -like "*Arqenor*" }
 ```
 
 ### Performance : trop d'evenements
@@ -313,11 +313,11 @@ Le minifilter genere beaucoup d'events (chaque file I/O). Si la VM rame :
 │  ObRegisterCallbacks (self-protect) ──┘              │
 │                                                     │
 └──────────────────────┬──────────────────────────────┘
-                       │ \SentinelPort
+                       │ \ArqenorPort
                        │ FilterGetMessage (blocking)
 ┌──────────────────────▼──────────────────────────────┐
 │                                                     │
-│  sentinel-driver-client (userspace)                 │
+│  arqenor-driver-client (userspace)                 │
 │  DriverClient::into_event_stream()                  │
 │  │                                                  │
 │  ▼                                                  │
@@ -338,4 +338,4 @@ Le minifilter genere beaucoup d'events (chaque file I/O). Si la VM rame :
 - [ ] Verifier les 5 types d'events (process create/terminate, file create/write/rename/delete, registry)
 - [ ] Benchmark : latence ajoutee par le minifilter sur les I/O fichier
 - [ ] Tester Driver Verifier pendant 30 min sans BSOD
-- [ ] Tester le self-protection : essayer de `taskkill /F` le process SENTINEL
+- [ ] Tester le self-protection : essayer de `taskkill /F` le process ARQENOR

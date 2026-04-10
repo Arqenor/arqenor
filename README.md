@@ -1,15 +1,15 @@
-# SENTINEL
+# ARQENOR
 
 **Open-source EDR (Endpoint Detection & Response)** — cross-platform, built in Rust and Go.
 
-SENTINEL gives independent developers, small teams, and security researchers commercial-grade detection capabilities without the $30/endpoint/month price tag. Real-time monitoring of processes, filesystem, network connections, persistence mechanisms, and memory — with SIGMA rules, IOC threat intelligence, YARA scanning, and alert correlation built in.
+ARQENOR gives independent developers, small teams, and security researchers commercial-grade detection capabilities without the $30/endpoint/month price tag. Real-time monitoring of processes, filesystem, network connections, persistence mechanisms, and memory — with SIGMA rules, IOC threat intelligence, YARA scanning, and alert correlation built in.
 
 ```
 ┌──────────────────────────────────────────────────────────┐
-│                      SENTINEL Stack                      │
+│                      ARQENOR Stack                      │
 │                                                          │
 │  ┌──────────────┐  ┌─────────────┐  ┌────────────────┐  │
-│  │ sentinel-tui │  │ sentinel-cli│  │  External API  │  │
+│  │ arqenor-tui │  │ arqenor-cli│  │  External API  │  │
 │  │   (Ratatui)  │  │   (clap)    │  │    Clients     │  │
 │  └──────┬───────┘  └──────┬──────┘  └───────┬────────┘  │
 │         │                 │                  │           │
@@ -22,14 +22,14 @@ SENTINEL gives independent developers, small teams, and security researchers com
 │                          │ gRPC                          │
 │                          ▼                               │
 │               ┌───────────────────────┐                  │
-│               │   sentinel-grpc       │                  │
+│               │   arqenor-grpc       │                  │
 │               │   Tonic :50051        │                  │
 │               └──────────┬────────────┘                  │
 │                          │                               │
 │         ┌────────────────┼────────────────┐              │
 │         ▼                ▼                ▼              │
 │  ┌─────────────┐  ┌──────────────┐  ┌──────────────┐    │
-│  │sentinel-    │  │sentinel-     │  │sentinel-     │    │
+│  │arqenor-    │  │arqenor-     │  │arqenor-     │    │
 │  │platform     │  │store         │  │core          │    │
 │  │(Win/Lin/Mac)│  │(SQLite)      │  │(traits+models│    │
 │  └─────────────┘  └──────────────┘  └──────────────┘    │
@@ -41,10 +41,10 @@ SENTINEL gives independent developers, small teams, and security researchers com
 ## Screenshots
 
 ### Desktop App (Tauri v2)
-![SENTINEL Desktop App](images/desktop-app-v-0-1.png)
+![ARQENOR Desktop App](images/desktop-app-v-0-1.png)
 
 ### Terminal UI (Ratatui)
-![SENTINEL Terminal UI](images/terminal-ui.png)
+![ARQENOR Terminal UI](images/terminal-ui.png)
 
 ---
 
@@ -63,10 +63,10 @@ SENTINEL gives independent developers, small teams, and security researchers com
 | **Persistence** | Win: Registry, Tasks, Services, WMI, COM, BITS, AppInit, IFEO (B1-B9) · Lin: Cron, Systemd, LD_PRELOAD, PAM, SSH, git hooks (C1-C7) · Mac: LaunchDaemon/Agent, login items, auth plugins |
 | **Filesystem** | FIM baseline + real-time watch (ReadDirectoryChangesW / inotify / ESF) |
 | **Kernel Telemetry** | ETW (10 providers, TDH parsing) · eBPF (5 probes) · ESF (macOS) · WDK kernel driver |
-| **PE Analyzer** | 25+ static features, heuristic scoring, string analysis (sentinel-ml) |
+| **PE Analyzer** | 25+ static features, heuristic scoring, string analysis (arqenor-ml) |
 | **Desktop App** | Tauri v2 + React: Incidents, Memory Forensics, Threat Intel pages |
 | **TUI** | Live Ratatui dashboard with alert streaming |
-| **CLI** | `sentinel scan` · `sentinel watch --sigma-dir --yara-dir --no-ioc` |
+| **CLI** | `arqenor scan` · `arqenor watch --sigma-dir --yara-dir --no-ioc` |
 | **API** | REST (Go/Gin) + gRPC (Rust/Tonic) + SSE alert streaming |
 | **Cross-platform** | Windows 10+, Linux, macOS — single codebase via `cfg-if` |
 | **ATT&CK Coverage** | ~140+ techniques across TA0001-TA0011 |
@@ -88,14 +88,14 @@ SENTINEL gives independent developers, small teams, and security researchers com
 
 ```bash
 # 1. Clone
-git clone https://github.com/your-org/sentinel.git
-cd sentinel
+git clone https://github.com/your-org/arqenor.git
+cd arqenor
 
 # 2. Build all Rust binaries
 cargo build --release \
-  -p sentinel-cli \
-  -p sentinel-tui \
-  -p sentinel-grpc
+  -p arqenor-cli \
+  -p arqenor-tui \
+  -p arqenor-grpc
 
 # 3. Build Go orchestrator
 cd go && go build ./cmd/orchestrator && cd ..
@@ -108,15 +108,15 @@ cd go && go build ./cmd/orchestrator && cd ..
 
 ```bash
 # Terminal 1 — gRPC host analyzer
-./rust/target/release/sentinel-grpc
+./rust/target/release/arqenor-grpc
 
 # Terminal 2 — REST orchestrator
 ./go/orchestrator
 
 # Terminal 3 — choose your interface
-./rust/target/release/sentinel scan          # one-shot CLI
-./rust/target/release/sentinel watch         # continuous CLI
-./rust/target/release/sentinel-tui           # dashboard UI
+./rust/target/release/arqenor scan          # one-shot CLI
+./rust/target/release/arqenor watch         # continuous CLI
+./rust/target/release/arqenor-tui           # dashboard UI
 ```
 
 ---
@@ -124,25 +124,25 @@ cd go && go build ./cmd/orchestrator && cd ..
 ## Project Structure
 
 ```
-sentinel/
+arqenor/
 ├── rust/
-│   ├── sentinel-core/       # Domain nucleus: traits, models, pipeline, rules, IOC, correlation
-│   ├── sentinel-platform/   # Win/Lin/Mac: ETW, ESF, connections, memory scan, YARA, BYOVD
-│   ├── sentinel-ml/         # Static PE analyzer (features, scoring, string analysis)
-│   ├── sentinel-grpc/       # Tonic gRPC server (port 50051)
-│   ├── sentinel-store/      # SQLite persistence layer
-│   ├── sentinel-tui/        # Ratatui terminal dashboard
-│   └── sentinel-cli/        # clap CLI (scan / watch)
-├── sentinel-ebpf/           # Linux eBPF kernel probes (libbpf-rs, 5 probes)
-├── sentinel-driver/         # Windows kernel driver (WDK, minifilter, self-protection)
-├── sentinel-desktop/        # Tauri v2 + React desktop app
+│   ├── arqenor-core/       # Domain nucleus: traits, models, pipeline, rules, IOC, correlation
+│   ├── arqenor-platform/   # Win/Lin/Mac: ETW, ESF, connections, memory scan, YARA, BYOVD
+│   ├── arqenor-ml/         # Static PE analyzer (features, scoring, string analysis)
+│   ├── arqenor-grpc/       # Tonic gRPC server (port 50051)
+│   ├── arqenor-store/      # SQLite persistence layer
+│   ├── arqenor-tui/        # Ratatui terminal dashboard
+│   └── arqenor-cli/        # clap CLI (scan / watch)
+├── arqenor-ebpf/           # Linux eBPF kernel probes (libbpf-rs, 5 probes)
+├── arqenor-driver/         # Windows kernel driver (WDK, minifilter, self-protection)
+├── arqenor-desktop/        # Tauri v2 + React desktop app
 ├── go/
 │   ├── cmd/orchestrator/    # Entry point
 │   ├── internal/api/        # Gin REST handlers + SSE alert streaming
 │   ├── internal/grpc/       # gRPC client + generated stubs
 │   └─��� internal/store/      # Go-side SQLite store
 ├── proto/                   # Protobuf definitions
-├── configs/                 # Runtime configuration (sentinel.toml)
+├── configs/                 # Runtime configuration (arqenor.toml)
 └── docs/                    # Architecture, roadmap, guides
 ```
 
@@ -150,7 +150,7 @@ sentinel/
 
 ## Configuration
 
-Copy `configs/sentinel.toml` to your working directory and adjust paths:
+Copy `configs/arqenor.toml` to your working directory and adjust paths:
 
 ```toml
 [general]
@@ -186,7 +186,7 @@ Full reference → [`docs/guides/configuration.md`](docs/guides/configuration.md
 | [gRPC Services](docs/architecture/grpc-services.md) | Proto definitions, RPC methods, message types |
 | [Go Orchestrator](docs/architecture/go-orchestrator.md) | REST API, gRPC client, orchestration logic |
 | [Installation Guide](docs/guides/installation.md) | Prerequisites, build steps, cross-compilation |
-| [Configuration Reference](docs/guides/configuration.md) | Every `sentinel.toml` key explained |
+| [Configuration Reference](docs/guides/configuration.md) | Every `arqenor.toml` key explained |
 | [Usage Guide](docs/guides/usage.md) | CLI commands, TUI controls, API calls |
 | [Build System](docs/development/build.md) | Cargo workspace, proto codegen, CI targets |
 | [Platform Notes](docs/development/platform-notes.md) | Windows/Linux/macOS specific details |
@@ -214,9 +214,9 @@ See [`docs/roadmap/ROADMAP.md`](docs/roadmap/ROADMAP.md) for the full 6-phase pl
 
 ## Business Model
 
-SENTINEL is **open-core**:
+ARQENOR is **open-core**:
 
-- **Open source** — `sentinel-core`, `sentinel-platform`, `sentinel-ml`, `sentinel-cli`, `sentinel-tui`, `sentinel-grpc`, `sentinel-ebpf`, `sentinel-driver`
+- **Open source** — `arqenor-core`, `arqenor-platform`, `arqenor-ml`, `arqenor-cli`, `arqenor-tui`, `arqenor-grpc`, `arqenor-ebpf`, `arqenor-driver`
 - **Closed / commercial** — cloud dashboard, threat intelligence feeds, multi-host management, enterprise alerting
 
 ---

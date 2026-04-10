@@ -1,0 +1,28 @@
+[package]
+name    = "arqenor-grpc"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "arqenor-grpc"
+path = "src/main.rs"
+
+[dependencies]
+arqenor-core     = { path = "../arqenor-core" }
+arqenor-platform = { path = "../arqenor-platform" }
+arqenor-store    = { path = "../arqenor-store" }
+tonic             = { workspace = true }
+prost             = { workspace = true }
+prost-types       = "0.13"
+tokio             = { workspace = true }
+tokio-stream      = { workspace = true }
+tracing           = { workspace = true }
+tracing-subscriber = { workspace = true }
+anyhow            = { workspace = true }
+serde             = { workspace = true }
+chrono            = { workspace = true }
+uuid              = { workspace = true }
+
+[build-dependencies]
+tonic-build          = "0.12"
+protoc-bin-vendored  = "3"

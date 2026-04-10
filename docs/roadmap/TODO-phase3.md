@@ -9,7 +9,7 @@ Legende : `[ ]` a faire · `[~]` en cours · `[x]` termine
 
 ## SECTION A — Windows Native Connections
 
-> fichier : `rust/sentinel-platform/src/windows/connections.rs`
+> fichier : `rust/arqenor-platform/src/windows/connections.rs`
 
 - [x] **A1** — Remplacer `netstat -ano` par `GetExtendedTcpTable` (IPv4 TCP)
   - Feature `Win32_NetworkManagement_IpHelper` active
@@ -27,7 +27,7 @@ Legende : `[ ]` a faire · `[~]` en cours · `[x]` termine
 
 ## SECTION B — Network Analysis Models
 
-> fichier : `rust/sentinel-core/src/models/network.rs`
+> fichier : `rust/arqenor-core/src/models/network.rs`
 
 - [x] **B1** — `FlowKey` (src_ip, dst_ip, dst_port, proto)
 - [x] **B2** — `FlowRecord` (timestamps, conn_count, first/last seen)
@@ -39,7 +39,7 @@ Legende : `[ ]` a faire · `[~]` en cours · `[x]` termine
 
 ## SECTION C — Network Detection Rules
 
-> fichier : `rust/sentinel-core/src/rules/network.rs`
+> fichier : `rust/arqenor-core/src/rules/network.rs`
 
 - [x] **C1** — C2 Beaconing `T1071`
   - `analyze_beaconing()` : coefficient of variation sur intervalles inter-connexion
@@ -69,7 +69,7 @@ Legende : `[ ]` a faire · `[~]` en cours · `[x]` termine
 
 ## SECTION D — Pipeline Integration
 
-> fichier : `rust/sentinel-core/src/pipeline.rs`
+> fichier : `rust/arqenor-core/src/pipeline.rs`
 
 - [x] **D1** — Ajouter `conn_rx: Receiver<ConnectionInfo>` au `DetectionPipeline`
   - Constructeur `new()` cree un dummy channel (backwards compat)
@@ -91,7 +91,7 @@ Legende : `[ ]` a faire · `[~]` en cours · `[x]` termine
 
 ## SECTION E — macOS ESF (complete dans cette session)
 
-> fichiers : `rust/sentinel-platform/src/macos/`
+> fichiers : `rust/arqenor-platform/src/macos/`
 
 - [x] **E1** — `esf_monitor.rs` : client ESF, 11 event types, muting, thread dedie
 - [x] **E2** — `esf_dispatcher.rs` : singleton OnceLock, fan-out 1 ESF → N consumers
@@ -114,7 +114,7 @@ Legende : `[ ]` a faire · `[~]` en cours · `[x]` termine
 - [ ] **F4** — ARP cache poisoning / rogue gateway detection
 - [x] **F5** — ConnectionMonitor::watch() polling impl (Win + Linux + macOS)
   - `spawn_polling_watch()` : polls `snapshot()` every 5s, dedup with HashSet, auto-stops on channel close
-- [x] **F6** — Wire connection watch into CLI `sentinel watch` + gRPC `watch_alerts`
+- [x] **F6** — Wire connection watch into CLI `arqenor watch` + gRPC `watch_alerts`
   - `conn_tx`/`conn_rx` channel, `DetectionPipeline::with_connections()`, fallback to polling if `NotSupported`
   - C2 beaconing + IOC IP checks now live in real-time
 
@@ -124,13 +124,13 @@ Legende : `[ ]` a faire · `[~]` en cours · `[x]` termine
 
 | Crate | Sections | Statut |
 |-------|----------|--------|
-| `sentinel-core` (models) | B1-B5 | ✅ |
-| `sentinel-core` (rules) | C1-C4 | ✅ |
-| `sentinel-core` (pipeline) | D1-D5 | ✅ |
-| `sentinel-platform` (Windows) | A1-A2 | ✅ |
-| `sentinel-platform` (macOS) | E1-E7 | ✅ |
-| `sentinel-platform` (Windows) | A3 (IPv6) | ⏳ pending |
-| `sentinel-core` (tls_fingerprint) | F1 | ✅ |
-| `sentinel-core` (connection_monitor) | F5 | ✅ |
-| `sentinel-cli` + `sentinel-grpc` | F6 | ✅ |
+| `arqenor-core` (models) | B1-B5 | ✅ |
+| `arqenor-core` (rules) | C1-C4 | ✅ |
+| `arqenor-core` (pipeline) | D1-D5 | ✅ |
+| `arqenor-platform` (Windows) | A1-A2 | ✅ |
+| `arqenor-platform` (macOS) | E1-E7 | ✅ |
+| `arqenor-platform` (Windows) | A3 (IPv6) | ⏳ pending |
+| `arqenor-core` (tls_fingerprint) | F1 | ✅ |
+| `arqenor-core` (connection_monitor) | F5 | ✅ |
+| `arqenor-cli` + `arqenor-grpc` | F6 | ✅ |
 | Phase 3b | F2-F4 | ⏳ pending |

@@ -1,0 +1,26 @@
+[package]
+name    = "arqenor-cli"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "arqenor"
+path = "src/main.rs"
+
+[features]
+default = []
+yara = ["arqenor-platform/yara"]
+kernel-driver = ["arqenor-platform/kernel-driver"]
+
+[dependencies]
+arqenor-core     = { path = "../arqenor-core" }
+arqenor-platform = { path = "../arqenor-platform" }
+arqenor-store    = { path = "../arqenor-store" }
+clap              = { workspace = true }
+tokio             = { workspace = true }
+anyhow            = { workspace = true }
+tracing           = { workspace = true }
+tracing-subscriber = { workspace = true }
+serde_json        = { workspace = true }
+chrono            = { workspace = true }
+uuid              = { workspace = true }

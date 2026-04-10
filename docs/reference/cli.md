@@ -1,9 +1,9 @@
 # CLI Reference
 
-Binary: `sentinel` (built from `sentinel-cli`)
+Binary: `arqenor` (built from `arqenor-cli`)
 
 ```
-sentinel [OPTIONS] <COMMAND>
+arqenor [OPTIONS] <COMMAND>
 
 Commands:
   scan    One-time scan snapshot
@@ -11,17 +11,17 @@ Commands:
   help    Print help
 
 Options:
-  --config <PATH>   Path to sentinel.toml [default: ./configs/sentinel.toml]
+  --config <PATH>   Path to arqenor.toml [default: ./configs/arqenor.toml]
   --version         Print version
   -h, --help        Print help
 ```
 
 ---
 
-## sentinel scan
+## arqenor scan
 
 ```
-sentinel scan [OPTIONS]
+arqenor scan [OPTIONS]
 
 Options:
   --host             Scan running processes
@@ -90,14 +90,14 @@ Persistence (3 entries)
 
 ---
 
-## sentinel watch
+## arqenor watch
 
 ```
-sentinel watch [OPTIONS]
+arqenor watch [OPTIONS]
 
 Options:
   --watch-path <PATH>   Directory to monitor for FIM [default: C:\Windows\System32 / /etc]
-  --db <PATH>           SQLite database for alert persistence [default: sentinel.db]
+  --db <PATH>           SQLite database for alert persistence [default: arqenor.db]
   -h, --help            Print help
 ```
 
@@ -109,8 +109,8 @@ Watch mode starts a **real-time detection pipeline**:
 4. **Alert consumer** — prints alerts to stdout and persists to SQLite
 
 ```
-$ sentinel watch --watch-path C:\Windows\System32
-SENTINEL watch — 15 process rules, 9 file rules | FIM: C:\Windows\System32 | db: sentinel.db
+$ arqenor watch --watch-path C:\Windows\System32
+ARQENOR watch — 15 process rules, 9 file rules | FIM: C:\Windows\System32 | db: arqenor.db
 Press Ctrl-C to stop.
 ────────────────────────────────────────────────────────────────────────
 
@@ -123,27 +123,27 @@ Press `Ctrl+C` to stop. Session summary is printed on exit.
 
 ---
 
-## sentinel-tui
+## arqenor-tui
 
 ```
-sentinel-tui [OPTIONS]
+arqenor-tui [OPTIONS]
 
 Options:
-  --config <PATH>    Path to sentinel.toml
+  --config <PATH>    Path to arqenor.toml
   -h, --help         Print help
 ```
 
-Launches the Ratatui dashboard. See [Usage Guide — Terminal UI](../guides/usage.md#terminal-ui-sentinel-tui) for keyboard controls.
+Launches the Ratatui dashboard. See [Usage Guide — Terminal UI](../guides/usage.md#terminal-ui-arqenor-tui) for keyboard controls.
 
 ---
 
-## sentinel-grpc
+## arqenor-grpc
 
 ```
-sentinel-grpc [OPTIONS]
+arqenor-grpc [OPTIONS]
 
 Options:
-  --config <PATH>    Path to sentinel.toml [default: ./configs/sentinel.toml]
+  --config <PATH>    Path to arqenor.toml [default: ./configs/arqenor.toml]
   --addr <ADDR>      Override gRPC listen address [default: 127.0.0.1:50051]
   -h, --help         Print help
 ```
@@ -153,6 +153,6 @@ Starts the Tonic gRPC server. Runs until `Ctrl+C`.
 Logs to stdout in structured format:
 
 ```
-2026-04-08T14:30:00Z  INFO sentinel_grpc: starting gRPC server addr=127.0.0.1:50051 platform=windows
-2026-04-08T14:30:00Z  INFO sentinel_grpc: ready
+2026-04-08T14:30:00Z  INFO arqenor_grpc: starting gRPC server addr=127.0.0.1:50051 platform=windows
+2026-04-08T14:30:00Z  INFO arqenor_grpc: ready
 ```

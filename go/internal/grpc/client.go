@@ -11,8 +11,8 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/protobuf/types/known/emptypb"
 
-	pb "sentinel/go/internal/grpc/generated"
-	"sentinel/go/internal/store"
+	pb "arqenor/go/internal/grpc/generated"
+	"arqenor/go/internal/store"
 )
 
 const defaultHostAnalyzerAddr = "127.0.0.1:50051"
@@ -39,7 +39,7 @@ func NewHostAnalyzerClient(logger *zap.Logger) (*HostAnalyzerClient, error) {
 		return nil, fmt.Errorf("connect to host analyzer at %s: %w", defaultHostAnalyzerAddr, err)
 	}
 
-	logger.Info("connected to sentinel-grpc", zap.String("addr", defaultHostAnalyzerAddr))
+	logger.Info("connected to arqenor-grpc", zap.String("addr", defaultHostAnalyzerAddr))
 
 	return &HostAnalyzerClient{
 		conn:   conn,

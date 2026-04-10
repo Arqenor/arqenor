@@ -3,7 +3,7 @@
 
 ## Why This Is the Biggest Gap
 
-The #1 detection gap between SENTINEL and CrowdStrike/SentinelOne is the
+The #1 detection gap between ARQENOR and CrowdStrike/ArqenorOne is the
 **Microsoft-Windows-Threat-Intelligence ETW provider** (a.k.a. "ETW-TI").
 
 This kernel-level channel delivers callbacks on every call to:
@@ -48,7 +48,7 @@ Microsoft-Windows-DNS-Client          — DNS queries per-process
 These alone provide **massive** detection coverage without any kernel driver.
 
 ```rust
-// sentinel-platform/src/windows/etw_consumer.rs
+// arqenor-platform/src/windows/etw_consumer.rs
 // Use windows-rs with Win32_System_Diagnostics_Etw feature
 
 use windows::Win32::System::Diagnostics::Etw::*;
@@ -94,7 +94,7 @@ pub struct EtwEvent {
 
 ### Why This Is Transformative
 
-With ETW event ID 4104 (PowerShell script block logging), SENTINEL sees
+With ETW event ID 4104 (PowerShell script block logging), ARQENOR sees
 the **full decoded PowerShell content** even after obfuscation — the payload
 is decoded in memory before execution, and ETW captures it at that point.
 
@@ -127,7 +127,7 @@ A minifilter driver doesn't require PPL but gives kernel-level FIM and
 registry monitoring with much lower latency than polling:
 
 ```rust
-// sentinel-driver/ (new crate)
+// arqenor-driver/ (new crate)
 // Built with windows-drivers-rs (Microsoft's official Rust WDK bindings)
 
 // IRP_MJ_CREATE filter → intercept file opens on protected paths
@@ -138,19 +138,19 @@ registry monitoring with much lower latency than polling:
 ### Driver Architecture
 
 ```
-User space:   sentinel-agent (Rust service)
+User space:   arqenor-agent (Rust service)
                     │ DeviceIoControl (IOCTL)
                     ▼
-Kernel space: sentinel.sys (minifilter driver)
+Kernel space: arqenor.sys (minifilter driver)
               ├── FltRegisterFilter()    — file system events
               ├── CmRegisterCallback()   — registry events  
               ├── PsSetCreateProcessNotifyRoutineEx() — process events
               ├── PsSetLoadImageNotifyRoutine()        — DLL load events
               └── ObRegisterCallbacks()  — handle-level access control
-                  (protect SENTINEL agent process from termination)
+                  (protect ARQENOR agent process from termination)
 ```
 
-The `ObRegisterCallbacks` hook is especially valuable — it lets SENTINEL
+The `ObRegisterCallbacks` hook is especially valuable — it lets ARQENOR
 protect its own process handle from being opened with `PROCESS_TERMINATE`
 rights by non-privileged processes. This is how commercial EDRs survive
 "EDR killer" attacks.
@@ -172,7 +172,7 @@ rights by non-privileged processes. This is how commercial EDRs survive
 ### Syscalls to Trace
 
 ```c
-// sentinel-ebpf/src/probes.bpf.c
+// arqenor-ebpf/src/probes.bpf.c
 
 // Process execution
 tracepoint/syscalls/sys_enter_execve    → capture: filename, argv
@@ -204,10 +204,10 @@ kprobe/do_init_module → kernel module loaded; capture: module name + hash
 eBPF programs (C) compiled with clang/LLVM
        │ BPF ring buffer
        ▼
-sentinel-ebpf-agent (Rust, using libbpf-rs)
+arqenor-ebpf-agent (Rust, using libbpf-rs)
        │ tokio channel
        ▼  
-sentinel-core detection rules
+arqenor-core detection rules
        │
        ▼
 Alert → TUI / Desktop UI
@@ -219,7 +219,7 @@ A known weakness: if a rootkit intercepts the eBPF ring buffer export path,
 it can suppress events. Counter-measures:
 
 1. Monitor `bpf()` syscall itself — if another process loads eBPF programs, alert
-2. Verify integrity of SENTINEL's own loaded eBPF programs via `/sys/fs/bpf/`
+2. Verify integrity of ARQENOR's own loaded eBPF programs via `/sys/fs/bpf/`
 3. Cross-check process tree from eBPF vs `/proc` — discrepancy = rootkit hiding processes
 
 ---
@@ -232,7 +232,7 @@ entitlement — only granted to apps distributed on the Mac App Store or via
 notarization with a special Apple entitlement.
 
 ```swift
-// sentinel-mac-agent/Sources/ESAgent.swift
+// arqenor-mac-agent/Sources/ESAgent.swift
 // (Swift module, called from Rust via FFI)
 
 import EndpointSecurity
@@ -257,7 +257,7 @@ func startMonitoring() {
 }
 ```
 
-The `AUTH_EXEC` event type lets SENTINEL **block** process execution — not just
+The `AUTH_EXEC` event type lets ARQENOR **block** process execution — not just
 observe — on macOS. This is the equivalent of real-time prevention mode.
 
 ---
@@ -266,9 +266,9 @@ observe — on macOS. This is the equivalent of real-time prevention mode.
 
 | Crate | Purpose |
 |-------|---------|
-| `sentinel-etw` (new) | Windows ETW consumer, event parsing |
-| `sentinel-driver` (new) | Windows kernel driver (Phase 2b, long-term) |
-| `sentinel-ebpf` (new) | Linux eBPF programs + Rust loader |
+| `arqenor-etw` (new) | Windows ETW consumer, event parsing |
+| `arqenor-driver` (new) | Windows kernel driver (Phase 2b, long-term) |
+| `arqenor-ebpf` (new) | Linux eBPF programs + Rust loader |
 | `libbpf-rs` | Rust bindings for libbpf (eBPF loader) |
 | `windows-drivers-rs` | Microsoft's Rust WDK bindings (driver dev) |
 

@@ -1,6 +1,6 @@
 # Protocol Buffer Reference
 
-All `.proto` files use `proto3` syntax and are located in `proto/`. Package: `sentinel`.
+All `.proto` files use `proto3` syntax and are located in `proto/`. Package: `arqenor`.
 
 For the full gRPC service documentation including RPC methods and streaming patterns, see [gRPC Services](../architecture/grpc-services.md).
 
@@ -195,7 +195,7 @@ service NetworkScanner {
 
 ## Versioning policy
 
-Proto files follow the package version (`sentinel` package = v0.x). Breaking changes:
+Proto files follow the package version (`arqenor` package = v0.x). Breaking changes:
 
 - Adding fields: **safe** (proto3 unknown fields are ignored)
 - Renaming fields: **safe** (wire encoding uses field numbers, not names)

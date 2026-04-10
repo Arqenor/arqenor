@@ -2,10 +2,10 @@
 
 ## Codebase platform dispatch
 
-All platform-specific code lives in `rust/sentinel-platform/src/`:
+All platform-specific code lives in `rust/arqenor-platform/src/`:
 
 ```
-sentinel-platform/src/
+arqenor-platform/src/
 ├── lib.rs           # Factory functions — the only public API
 ├── windows/
 │   ├── process_monitor.rs
@@ -43,7 +43,7 @@ cfg_if! {
 }
 ```
 
-**Rule:** never put `#[cfg(target_os = ...)]` outside of `sentinel-platform`. All other crates use the trait `ProcessMonitor` only.
+**Rule:** never put `#[cfg(target_os = ...)]` outside of `arqenor-platform`. All other crates use the trait `ProcessMonitor` only.
 
 ---
 
@@ -164,17 +164,17 @@ Uses `libpcap` (available via Xcode command line tools). No additional installat
 
 ## Adding a new platform
 
-1. Create `rust/sentinel-platform/src/<platform>/`:
+1. Create `rust/arqenor-platform/src/<platform>/`:
    - `process_monitor.rs` — implement `ProcessMonitor`
    - `persistence.rs` — implement `PersistenceDetector`
    - `fs_scanner.rs` — implement `FsScanner`
 
-2. Add platform-specific deps in `sentinel-platform/Cargo.toml`:
+2. Add platform-specific deps in `arqenor-platform/Cargo.toml`:
    ```toml
    [target.'cfg(target_os = "yourplatform")'.dependencies]
    some-platform-crate = "1.0"
    ```
 
-3. Register in `sentinel-platform/src/lib.rs` inside the `cfg_if!` block
+3. Register in `arqenor-platform/src/lib.rs` inside the `cfg_if!` block
 
 4. Update this document with capability matrix and privilege notes

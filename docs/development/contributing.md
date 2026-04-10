@@ -8,7 +8,7 @@
 - Pass `cargo clippy --workspace -- -D warnings` with zero warnings
 - Use `tracing::{info, debug, warn, error}` for logging — no `println!` in library code
 - All public items must have doc comments (`///`)
-- Prefer `Result<T, SentinelError>` in public APIs; use `?` for propagation
+- Prefer `Result<T, ArqenorError>` in public APIs; use `?` for propagation
 
 ### Go
 
@@ -62,10 +62,10 @@ chore(deps): bump tonic to 0.12
 
 ## Adding a new detection (persistence mechanism)
 
-1. Add a variant to `PersistenceKind` in `sentinel-core/src/models/persistence.rs`
-2. Add proto string mapping in `sentinel-grpc/src/services/host_analyzer.rs`
-3. Implement detection in the relevant platform module(s) under `sentinel-platform/src/<os>/persistence.rs`
-4. Add a test case in `sentinel-platform/tests/persistence_test.rs`
+1. Add a variant to `PersistenceKind` in `arqenor-core/src/models/persistence.rs`
+2. Add proto string mapping in `arqenor-grpc/src/services/host_analyzer.rs`
+3. Implement detection in the relevant platform module(s) under `arqenor-platform/src/<os>/persistence.rs`
+4. Add a test case in `arqenor-platform/tests/persistence_test.rs`
 5. Update `docs/development/platform-notes.md` with the new mechanism
 
 ---
@@ -75,7 +75,7 @@ chore(deps): bump tonic to 0.12
 ### Rust unit tests
 
 ```bash
-cargo test --workspace --exclude sentinel-grpc
+cargo test --workspace --exclude arqenor-grpc
 ```
 
 Tests live in `#[cfg(test)]` modules within each source file.
@@ -83,7 +83,7 @@ Tests live in `#[cfg(test)]` modules within each source file.
 ### Rust integration tests
 
 ```bash
-cargo test -p sentinel-platform --test '*'
+cargo test -p arqenor-platform --test '*'
 ```
 
 Platform integration tests run against the real OS — they must be run on the target platform (not in CI cross-compile).
@@ -98,10 +98,10 @@ cd go && go test ./...
 
 ```bash
 # Start gRPC server
-cargo run -p sentinel-grpc &
+cargo run -p arqenor-grpc &
 
 # Run CLI scan and verify output
-cargo run -p sentinel-cli -- scan --host --json | jq '.processes | length'
+cargo run -p arqenor-cli -- scan --host --json | jq '.processes | length'
 
 # Kill server
 kill %1
@@ -111,7 +111,7 @@ kill %1
 
 ## Dependency policy
 
-- **No new platform-specific dependencies** in crates other than `sentinel-platform`
+- **No new platform-specific dependencies** in crates other than `arqenor-platform`
 - Prefer crates with `no_std` compatibility where possible for future embedded targets
 - Pin major versions in `Cargo.toml`; use `cargo update` for patch bumps
 - All new Go dependencies must be audited with `go mod tidy` and have a clear justification

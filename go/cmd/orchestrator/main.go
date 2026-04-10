@@ -11,11 +11,11 @@ import (
 
 	"go.uber.org/zap"
 
-	"sentinel/go/internal/api"
-	"sentinel/go/internal/api/routes"
-	grpcclient "sentinel/go/internal/grpc"
-	"sentinel/go/internal/scanner"
-	"sentinel/go/internal/store"
+	"arqenor/go/internal/api"
+	"arqenor/go/internal/api/routes"
+	grpcclient "arqenor/go/internal/grpc"
+	"arqenor/go/internal/scanner"
+	"arqenor/go/internal/store"
 )
 
 func main() {
@@ -27,16 +27,16 @@ func main() {
 	defer cancel()
 
 	// Connect to the Rust host analyzer gRPC server.
-	// sentinel-grpc must be running before the orchestrator starts.
+	// arqenor-grpc must be running before the orchestrator starts.
 	client, err := grpcclient.NewHostAnalyzerClient(logger)
 	if err != nil {
-		logger.Warn("could not connect to sentinel-grpc — host analysis unavailable",
+		logger.Warn("could not connect to arqenor-grpc — host analysis unavailable",
 			zap.Error(err))
 	} else {
 		defer client.Close()
 	}
 
-	dbPath := filepath.Join("data", "sentinel.db")
+	dbPath := filepath.Join("data", "arqenor.db")
 	if err := os.MkdirAll(filepath.Dir(dbPath), 0o755); err != nil {
 		logger.Fatal("create data dir", zap.String("path", filepath.Dir(dbPath)), zap.Error(err))
 	}

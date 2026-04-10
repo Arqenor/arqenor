@@ -25,9 +25,9 @@ Our advantage: much stronger endpoint detection capability than Wazuh.
 ## 6.1 — Agent → Cloud Architecture
 
 ```
-Endpoint A (SENTINEL agent)
-Endpoint B (SENTINEL agent)    ──→  sentinel-cloud API  ──→  Web Dashboard
-Endpoint C (SENTINEL agent)              │
+Endpoint A (ARQENOR agent)
+Endpoint B (ARQENOR agent)    ──→  arqenor-cloud API  ──→  Web Dashboard
+Endpoint C (ARQENOR agent)              │
                                          ▼
                                PostgreSQL (alerts, telemetry)
                                Redis (real-time event bus)
@@ -62,7 +62,7 @@ message AlertEvent {
 }
 ```
 
-Transport: gRPC over TLS (existing `sentinel-grpc` crate), with mutual TLS
+Transport: gRPC over TLS (existing `arqenor-grpc` crate), with mutual TLS
 authentication (agent cert issued at enrollment).
 
 ---
@@ -110,7 +110,7 @@ Visual representation of which techniques are active across the fleet.
 Makes executive reporting dramatically easier.
 
 ```
-SENTINEL ATT&CK Coverage — Last 30 days
+ARQENOR ATT&CK Coverage — Last 30 days
 
 TA0002 Execution    ████████████ T1059.001 (47 alerts)
                     ████         T1218.010 (12 alerts)
@@ -128,7 +128,7 @@ TA0006 Cred Access  ████         T1003.001 (15 alerts, 2 CRITICAL)
 - Prevent re-spawn (hash-block via AppLocker)
 
 **Host Isolation**
-- Block all network traffic except to SENTINEL cloud (for investigation)
+- Block all network traffic except to ARQENOR cloud (for investigation)
 - Implemented via Windows Firewall API / iptables on Linux
 - One-click from dashboard
 
@@ -185,11 +185,11 @@ The agent MUST function without cloud connectivity:
 - Airports, air-gapped networks, cloud outage
 - All Phase 1-5 detection works locally
 - Cloud is additive (fleet view, managed feeds, response)
-- This is a hard requirement that differentiates SENTINEL from SaaS-only tools
+- This is a hard requirement that differentiates ARQENOR from SaaS-only tools
 
-### gRPC + Existing sentinel-grpc
+### gRPC + Existing arqenor-grpc
 
-Re-use the existing `sentinel-grpc` crate (Phase 2 of original plan).
+Re-use the existing `arqenor-grpc` crate (Phase 2 of original plan).
 Add new proto definitions for fleet telemetry.
 The cloud API is just a gRPC server in Go (existing plan) receiving from agents.
 
@@ -205,4 +205,4 @@ The cloud API is just a gRPC server in Go (existing plan) receiving from agents.
 | Enterprise | Custom | + MDR, SIEM integration, custom retention, SLA |
 
 Comparable: Wazuh Cloud ($3.50/agent), Elastic Security ($95/host/month).
-SENTINEL positioning: stronger detection than Wazuh, fraction of Elastic's cost.
+ARQENOR positioning: stronger detection than Wazuh, fraction of Elastic's cost.

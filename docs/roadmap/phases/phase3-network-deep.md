@@ -28,7 +28,7 @@ Add a lightweight pcap-based capture module that runs alongside the port scanner
 and analyzes traffic at the flow level (NOT packet inspection — just metadata).
 
 ```rust
-// sentinel-net/ (new crate)
+// arqenor-net/ (new crate)
 // Uses pcap crate (libpcap wrapper)
 
 pub struct FlowRecord {
@@ -215,7 +215,7 @@ JA4 format: q[d][2][e][f]_[g][h]_[i][j]
              └────────────────────── QUIC or TCP
 ```
 
-Use cases for SENTINEL:
+Use cases for ARQENOR:
 - Match TLS fingerprints against known **Cobalt Strike**, **Metasploit**, **Sliver** profiles
 - Detect self-signed certificates on established connections
 - Flag connections where the JA4 fingerprint doesn't match the claimed SNI domain
@@ -307,10 +307,10 @@ pub struct ArpEntry {
 
 ---
 
-## Architecture: sentinel-net Crate
+## Architecture: arqenor-net Crate
 
 ```
-sentinel-net/
+arqenor-net/
 ├── src/
 │   ├── capture.rs      — pcap interface, flow builder
 │   ├── beaconing.rs    — beacon detection algorithm

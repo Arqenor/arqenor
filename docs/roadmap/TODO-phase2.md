@@ -8,7 +8,7 @@ Légende : `[ ]` à faire · `[~]` en cours · `[x]` terminé
 
 ## SECTION A — Windows ETW Consumer
 
-> fichiers : `rust/sentinel-platform/src/windows/etw_consumer.rs` + `etw_monitor.rs`
+> fichiers : `rust/arqenor-platform/src/windows/etw_consumer.rs` + `etw_monitor.rs`
 
 - [x] **A1** — Session ETW temps-réel
   - `StartTrace → EnableTraceEx2 × N → OpenTrace → ProcessTrace` (thread dédié)
@@ -38,7 +38,7 @@ Légende : `[ ]` à faire · `[~]` en cours · `[x]` terminé
   - Permet le filtrage sur contenu : PS 4104 + IOC regex, DNS 3006 + C2 domain list
   - Nécessite feature `Win32_System_Diagnostics_Etw` étendue + `TDH` linking
 
-- [x] **A6** — UI : onglet « ETW Stream » dans `sentinel-desktop`
+- [x] **A6** — UI : onglet « ETW Stream » dans `arqenor-desktop`
   - Liste temps-réel des événements ETW haute-valeur
   - Filtre par provider / event_id / PID
   - Badge compteur dans sidebar
@@ -47,12 +47,12 @@ Légende : `[ ]` à faire · `[~]` en cours · `[x]` terminé
 
 ## SECTION B — Linux eBPF Agent
 
-> nouveau crate : `sentinel-ebpf/` (C probes + Rust loader libbpf-rs)
+> nouveau crate : `arqenor-ebpf/` (C probes + Rust loader libbpf-rs)
 
-- [x] **B1** — Créer le crate `sentinel-ebpf` (workspace member)
-  - `sentinel-ebpf/src/probes/` — programmes eBPF en C (compilés avec clang)
-  - `sentinel-ebpf/src/loader.rs` — loader Rust avec `libbpf-rs`
-  - `sentinel-ebpf/src/events.rs` — struct `EbpfEvent` + ring buffer consumer
+- [x] **B1** — Créer le crate `arqenor-ebpf` (workspace member)
+  - `arqenor-ebpf/src/probes/` — programmes eBPF en C (compilés avec clang)
+  - `arqenor-ebpf/src/loader.rs` — loader Rust avec `libbpf-rs`
+  - `arqenor-ebpf/src/events.rs` — struct `EbpfEvent` + ring buffer consumer
 
 - [x] **B2** — Probes exécution de processus `T1059`
   - `tracepoint/syscalls/sys_enter_execve` → capture filename + argv
@@ -73,7 +73,7 @@ Légende : `[ ]` à faire · `[~]` en cours · `[x]` terminé
 - [x] **B6** — Probe chargement de module kernel `T1014`
   - `kprobe/do_init_module` → nom du module + hash
 
-- [x] **B7** — Pipeline eBPF → sentinel-core
+- [x] **B7** — Pipeline eBPF → arqenor-core
   - BPF ring buffer → `libbpf-rs` → `tokio::sync::mpsc::Sender<EbpfEvent>`
   - `EbpfEvent` → règles de détection → `Alert`
 
@@ -81,9 +81,9 @@ Légende : `[ ]` à faire · `[~]` en cours · `[x]` terminé
 
 ## SECTION C — Kernel Driver Windows (Phase 2b, long-term)
 
-> nouveau crate : `sentinel-driver/` (WDK — windows-drivers-rs)
+> nouveau crate : `arqenor-driver/` (WDK — windows-drivers-rs)
 
-- [x] **C1** — Setup crate `sentinel-driver` avec WDK toolchain
+- [x] **C1** — Setup crate `arqenor-driver` avec WDK toolchain
 - [x] **C2** — Minifilter file-system (`FltRegisterFilter`) — FIM kernel-level
 - [x] **C3** — Registry callbacks (`CmRegisterCallback`)
 - [x] **C4** — Process notify (`PsSetCreateProcessNotifyRoutineEx`)
@@ -96,7 +96,7 @@ Légende : `[ ]` à faire · `[~]` en cours · `[x]` terminé
 
 ## SECTION D — macOS: Endpoint Security Framework
 
-> nouveau crate : `sentinel-esf/` (Swift + Rust FFI)
+> nouveau crate : `arqenor-esf/` (Swift + Rust FFI)
 
 - [ ] **D1** — Swift module `ESAgent.swift` avec `es_new_client`
 - [ ] **D2** — Events : `ES_EVENT_TYPE_NOTIFY_EXEC`, `ES_EVENT_TYPE_NOTIFY_CREATE`
@@ -128,9 +128,9 @@ D1 → D4        → macOS ESF (parallélisable)
 
 | Crate | Sections | Statut |
 |-------|----------|--------|
-| `sentinel-platform` (Windows) | A1, A2, A3 | ✅ |
-| `sentinel-platform` (Windows) | A4, A5 | ✅ |
-| `sentinel-desktop` | A6 | ✅ |
-| `sentinel-ebpf` (nouveau) | B1–B7 | ✅ |
-| `sentinel-driver` (nouveau) | C1–C5 | ✅ (C6 bloqué MVI) |
-| `sentinel-esf` (nouveau) | D1–D4 | ⏳ pending |
+| `arqenor-platform` (Windows) | A1, A2, A3 | ✅ |
+| `arqenor-platform` (Windows) | A4, A5 | ✅ |
+| `arqenor-desktop` | A6 | ✅ |
+| `arqenor-ebpf` (nouveau) | B1–B7 | ✅ |
+| `arqenor-driver` (nouveau) | C1–C5 | ✅ (C6 bloqué MVI) |
+| `arqenor-esf` (nouveau) | D1–D4 | ⏳ pending |

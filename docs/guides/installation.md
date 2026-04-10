@@ -44,29 +44,29 @@ go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/your-org/sentinel.git
-cd sentinel
+git clone https://github.com/your-org/arqenor.git
+cd arqenor
 ```
 
 ### 2. Build Rust binaries
 
 ```bash
 # CLI scanner
-cargo build --release -p sentinel-cli
+cargo build --release -p arqenor-cli
 
 # Terminal UI
-cargo build --release -p sentinel-tui
+cargo build --release -p arqenor-tui
 
 # gRPC server (requires protoc)
-cargo build --release -p sentinel-grpc
+cargo build --release -p arqenor-grpc
 
 # All at once
-cargo build --release -p sentinel-cli -p sentinel-tui -p sentinel-grpc
+cargo build --release -p arqenor-cli -p arqenor-tui -p arqenor-grpc
 ```
 
 Binaries are written to `rust/target/release/`.
 
-> **Note:** `sentinel-grpc` triggers `build.rs` which runs `tonic-build`. Make sure `protoc` is in your `PATH` before building this crate.
+> **Note:** `arqenor-grpc` triggers `build.rs` which runs `tonic-build`. Make sure `protoc` is in your `PATH` before building this crate.
 
 ### 3. Build Go orchestrator
 
@@ -95,7 +95,7 @@ protoc \
   proto/common.proto proto/host_analyzer.proto proto/network_scanner.proto
 ```
 
-Rust stubs regenerate automatically on `cargo build -p sentinel-grpc`.
+Rust stubs regenerate automatically on `cargo build -p arqenor-grpc`.
 
 ---
 
@@ -129,14 +129,14 @@ Rust stubs regenerate automatically on `cargo build -p sentinel-grpc`.
 
 ```bash
 rustup target add x86_64-unknown-linux-gnu
-cargo build --release --target x86_64-unknown-linux-gnu -p sentinel-cli
+cargo build --release --target x86_64-unknown-linux-gnu -p arqenor-cli
 ```
 
 You may need `cross` for a fully linked binary:
 
 ```bash
 cargo install cross
-cross build --release --target x86_64-unknown-linux-gnu -p sentinel-cli
+cross build --release --target x86_64-unknown-linux-gnu -p arqenor-cli
 ```
 
 ### Linux → Windows
@@ -144,7 +144,7 @@ cross build --release --target x86_64-unknown-linux-gnu -p sentinel-cli
 ```bash
 rustup target add x86_64-pc-windows-gnu
 sudo apt install gcc-mingw-w64-x86-64
-cargo build --release --target x86_64-pc-windows-gnu -p sentinel-cli
+cargo build --release --target x86_64-pc-windows-gnu -p arqenor-cli
 ```
 
 ---
@@ -153,15 +153,15 @@ cargo build --release --target x86_64-pc-windows-gnu -p sentinel-cli
 
 ```bash
 # CLI
-./sentinel --version
+./arqenor --version
 
 # TUI (launches dashboard — press q to exit)
-./sentinel-tui
+./arqenor-tui
 
 # gRPC server
-./sentinel-grpc &
+./arqenor-grpc &
 # test health with grpc_cli or grpcurl:
-grpcurl -plaintext 127.0.0.1:50051 sentinel.HostAnalyzer/Health
+grpcurl -plaintext 127.0.0.1:50051 arqenor.HostAnalyzer/Health
 
 # Orchestrator
 ./orchestrator &

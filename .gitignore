@@ -14,18 +14,18 @@ go/orchestrator.exe
 # Generated proto stubs (run scripts/gen-proto.ps1 to rebuild)
 # ──────────────────────────────────────────────
 go/internal/grpc/generated/*.go
-rust/sentinel-grpc/src/generated/*.rs
-!rust/sentinel-grpc/src/generated/.gitkeep
+rust/arqenor-grpc/src/generated/*.rs
+!rust/arqenor-grpc/src/generated/.gitkeep
 !go/internal/grpc/generated/.gitkeep
 
 # ──────────────────────────────────────────────
-# sentinel-desktop (Tauri + React)
+# arqenor-desktop (Tauri + React)
 # ──────────────────────────────────────────────
-sentinel-desktop/node_modules/
-sentinel-desktop/dist/
-sentinel-desktop/src-tauri/target/
-sentinel-desktop/.env
-sentinel-desktop/.env.*
+arqenor-desktop/node_modules/
+arqenor-desktop/dist/
+arqenor-desktop/src-tauri/target/
+arqenor-desktop/.env
+arqenor-desktop/.env.*
 
 # ──────────────────────────────────────────────
 # Runtime data & secrets
@@ -36,7 +36,7 @@ data/
 *.log
 
 # Local config overrides (never commit)
-configs/sentinel.local.toml
+configs/arqenor.local.toml
 .env
 .env.*
 !.env.example

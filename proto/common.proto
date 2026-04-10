@@ -1,6 +1,6 @@
 syntax = "proto3";
-package sentinel.common;
-option go_package = "sentinel/go/internal/grpc/generated;sentinelgrpc";
+package arqenor.common;
+option go_package = "arqenor/go/internal/grpc/generated;arqenorgrpc";
 
 import "google/protobuf/timestamp.proto";
 

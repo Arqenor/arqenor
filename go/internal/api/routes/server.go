@@ -11,8 +11,8 @@ import (
 	"github.com/google/uuid"
 	"go.uber.org/zap"
 
-	"sentinel/go/internal/scanner"
-	"sentinel/go/internal/store"
+	"arqenor/go/internal/scanner"
+	"arqenor/go/internal/store"
 )
 
 // ── Alert broadcaster (fan-out to SSE subscribers) ───────────────────────────
@@ -86,7 +86,7 @@ func NewServer(logger *zap.Logger, sc *scanner.Scanner, st *store.Store, b *Aler
 }
 
 func (s *Server) handleHealth(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"status": "ok", "service": "sentinel-orchestrator"})
+	c.JSON(http.StatusOK, gin.H{"status": "ok", "service": "arqenor-orchestrator"})
 }
 
 func (s *Server) handleListAlerts(c *gin.Context) {

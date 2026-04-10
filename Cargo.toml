@@ -1,18 +1,18 @@
 [workspace]
 resolver = "2"
 members = [
-    "rust/sentinel-core",
-    "rust/sentinel-platform",
-    "rust/sentinel-grpc",
-    "rust/sentinel-store",
-    "rust/sentinel-tui",
-    "rust/sentinel-cli",
-    "rust/sentinel-ml",
-    "sentinel-desktop/src-tauri",
-    "sentinel-ebpf",           # Phase 2 — Linux eBPF kernel telemetry (B2-B6)
+    "rust/arqenor-core",
+    "rust/arqenor-platform",
+    "rust/arqenor-grpc",
+    "rust/arqenor-store",
+    "rust/arqenor-tui",
+    "rust/arqenor-cli",
+    "rust/arqenor-ml",
+    "arqenor-desktop/src-tauri",
+    "arqenor-ebpf",           # Phase 2 — Linux eBPF kernel telemetry (B2-B6)
 ]
 exclude = [
-    "sentinel-driver",         # Nested workspace: nightly + WDK toolchain, no_std
+    "arqenor-driver",         # Nested workspace: nightly + WDK toolchain, no_std
 ]
 
 [workspace.dependencies]

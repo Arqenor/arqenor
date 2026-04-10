@@ -54,7 +54,7 @@ kernel capabilities. This is high-impact, achievable without a kernel driver.
 ### Implementation in Rust
 
 ```rust
-// sentinel-platform/src/windows/persistence_detector.rs additions:
+// arqenor-platform/src/windows/persistence_detector.rs additions:
 
 pub async fn detect_wmi_subscriptions() -> Vec<PersistenceEntry> {
     // Use windows-rs COM to query WMI:
@@ -83,11 +83,11 @@ pub async fn detect_dll_sideloading() -> Vec<PersistenceEntry> {
 
 ### Rule Engine Design
 
-SENTINEL needs a **rule engine** that matches process creation events against
+ARQENOR needs a **rule engine** that matches process creation events against
 patterns. Format: compatible with SIGMA (the industry-standard open detection rule format).
 
 ```rust
-// sentinel-core/src/rules/mod.rs
+// arqenor-core/src/rules/mod.rs
 
 pub struct DetectionRule {
     pub id:          String,       // e.g. "SENT-1001"
@@ -230,7 +230,7 @@ Current scoring is simplistic (path-based). Upgrade to multi-factor scoring:
 | Hollow process (no PE on disk) | +10 | Process hollowing T1055.012 |
 
 ```rust
-// Add to sentinel-core/src/models/process.rs:
+// Add to arqenor-core/src/models/process.rs:
 pub struct ProcessScore {
     pub total:    u8,
     pub factors:  Vec<ScoreFactor>,  // for explainability
@@ -249,12 +249,12 @@ pub struct ScoreFactor {
 
 | Crate | Changes |
 |-------|---------|
-| `sentinel-core` | Add `rules/` module, `ScoreFactor`, `Alert` model with ATT&CK ID |
-| `sentinel-platform` | Expand persistence detector (WMI, COM, BITS, DLL sideload) |
-| `sentinel-platform` | Add `lsass_guard` module (handle table scan) |
-| `sentinel-platform` | Add `fim` module (file integrity monitoring) |
-| `sentinel-tui` | Show ATT&CK IDs in process/persistence tabs |
-| `sentinel-desktop` | Alerts tab, ATT&CK technique badges |
+| `arqenor-core` | Add `rules/` module, `ScoreFactor`, `Alert` model with ATT&CK ID |
+| `arqenor-platform` | Expand persistence detector (WMI, COM, BITS, DLL sideload) |
+| `arqenor-platform` | Add `lsass_guard` module (handle table scan) |
+| `arqenor-platform` | Add `fim` module (file integrity monitoring) |
+| `arqenor-tui` | Show ATT&CK IDs in process/persistence tabs |
+| `arqenor-desktop` | Alerts tab, ATT&CK technique badges |
 
 ## Estimated ATT&CK Coverage After Phase 1
 

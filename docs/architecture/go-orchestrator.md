@@ -33,7 +33,7 @@ go/
 ```go
 // cmd/orchestrator/main.go (simplified)
 func main() {
-    cfg := config.Load("configs/sentinel.toml")
+    cfg := config.Load("configs/arqenor.toml")
 
     grpcClient := grpc.NewClient(cfg.GRPC.HostAnalyzerAddr)
     defer grpcClient.Close()
@@ -94,21 +94,21 @@ Response:
 
 ## gRPC Client
 
-`internal/grpc/client.go` maintains a persistent connection to `sentinel-grpc`:
+`internal/grpc/client.go` maintains a persistent connection to `arqenor-grpc`:
 
 ```go
 type Client struct {
     conn *grpc.ClientConn
-    host sentinel.HostAnalyzerClient
+    host arqenor.HostAnalyzerClient
 }
 
 func NewClient(addr string) (*Client, error) {
     conn, err := grpc.Dial(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
     // ...
-    return &Client{conn: conn, host: sentinel.NewHostAnalyzerClient(conn)}, nil
+    return &Client{conn: conn, host: arqenor.NewHostAnalyzerClient(conn)}, nil
 }
 
-func (c *Client) GetProcessSnapshot(ctx context.Context) (*sentinel.ProcessSnapshot, error) {
+func (c *Client) GetProcessSnapshot(ctx context.Context) (*arqenor.ProcessSnapshot, error) {
     return c.host.GetProcessSnapshot(ctx, &emptypb.Empty{})
 }
 ```
@@ -126,13 +126,13 @@ Uses `go.uber.org/zap` (structured JSON logging):
 {"level":"info","ts":1712345679.00,"msg":"REST API listening","addr":"127.0.0.1:8080"}
 ```
 
-Log level controlled by `SENTINEL_LOG_LEVEL` env var or `[general] log_level` in `sentinel.toml`.
+Log level controlled by `ARQENOR_LOG_LEVEL` env var or `[general] log_level` in `arqenor.toml`.
 
 ---
 
 ## Configuration
 
-The orchestrator reads `sentinel.toml` at startup (path overridable via `--config` flag):
+The orchestrator reads `arqenor.toml` at startup (path overridable via `--config` flag):
 
 ```toml
 [grpc]
@@ -148,7 +148,7 @@ listen_addr = "127.0.0.1:8080"
 
 In the commercial tier, the orchestrator will:
 
-1. Maintain a registry of remote `sentinel-grpc` agents
+1. Maintain a registry of remote `arqenor-grpc` agents
 2. Fan out scan requests across agents concurrently
 3. Correlate alerts across hosts (same SHA-256 seen on N machines)
 4. Stream aggregated results to a cloud dashboard via WebSocket

@@ -1,5 +1,5 @@
 # Generate protobuf code for both Go and Rust sides.
-# Rust: handled by sentinel-grpc/build.rs (runs automatically with `cargo build`)
+# Rust: handled by arqenor-grpc/build.rs (runs automatically with `cargo build`)
 # Go:   requires protoc + protoc-gen-go + protoc-gen-go-grpc in PATH
 #
 # Install Go plugins:
@@ -27,4 +27,4 @@ if ($LASTEXITCODE -eq 0) {
     exit 1
 }
 
-Write-Host "Rust stubs generated automatically by cargo build -p sentinel-grpc"
+Write-Host "Rust stubs generated automatically by cargo build -p arqenor-grpc"

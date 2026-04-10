@@ -70,7 +70,7 @@ Decision trees are ideal for on-device PE scoring:
 - **Explainable**: Can output top contributing features ("high entropy section + VirtualAllocEx + no signature")
 
 ```rust
-// sentinel-ml/src/pe_scorer.rs
+// arqenor-ml/src/pe_scorer.rs
 
 pub struct PeScorer {
     model: GradientBoostModel,  // loaded from embedded bytes
@@ -90,7 +90,7 @@ impl PeScorer {
 // Training: Python (scikit-learn / XGBoost) → export ONNX → load in Rust with ort crate
 ```
 
-**Training pipeline** (separate from SENTINEL agent):
+**Training pipeline** (separate from ARQENOR agent):
 ```
 Python: train_pe_model.py
   → Load EMBER/SOREL-20M
@@ -98,7 +98,7 @@ Python: train_pe_model.py
   → XGBoost training
   → ONNX export
   → Quantize to INT8 (model size reduction ~4x)
-  → Embed in sentinel-ml/data/pe_model.onnx.zst
+  → Embed in arqenor-ml/data/pe_model.onnx.zst
 ```
 
 ---
@@ -163,7 +163,7 @@ Isolation Forest is ideal for anomaly detection (no labeled malware data require
 Training phase (30 days of normal activity):
   → Collect ProcessBehaviorWindow vectors for each process type
   → Fit Isolation Forest per process image name
-  → Model stored per machine: ~/.sentinel/profiles/chrome.model
+  → Model stored per machine: ~/.arqenor/profiles/chrome.model
 
 Detection phase (continuous):
   → Each 5-min window → compute features → score against model
@@ -207,11 +207,11 @@ tags:
     - attack.t1059.001
 ```
 
-By implementing SIGMA rule parsing, SENTINEL instantly gets **3,000+ detection rules**
+By implementing SIGMA rule parsing, ARQENOR instantly gets **3,000+ detection rules**
 from the community: https://github.com/SigmaHQ/sigma/tree/master/rules
 
 ```rust
-// sentinel-core/src/rules/sigma.rs
+// arqenor-core/src/rules/sigma.rs
 
 pub struct SigmaRule {
     pub title:     String,
@@ -222,7 +222,7 @@ pub struct SigmaRule {
 
 pub fn load_sigma_rules(path: &Path) -> Vec<SigmaRule> {
     // Parse YAML SIGMA files
-    // Compile to SENTINEL's internal rule format
+    // Compile to ARQENOR's internal rule format
     // Support: process_creation, registry_event, network_connection, file_event
 }
 
@@ -241,7 +241,7 @@ pub fn evaluate(rule: &SigmaRule, event: &TelemetryEvent) -> bool {
 Store and match Indicators of Compromise locally (no external API needed in base tier):
 
 ```rust
-// sentinel-store/src/ioc.rs
+// arqenor-store/src/ioc.rs
 
 pub struct IocDatabase {
     pub hashes:    HashSet<[u8; 32]>,     // SHA-256 file hashes
@@ -288,7 +288,7 @@ PowerShell encoded command (+30 pts)
 ```
 
 ```rust
-// sentinel-core/src/correlation.rs
+// arqenor-core/src/correlation.rs
 
 pub struct Incident {
     pub id:          Uuid,

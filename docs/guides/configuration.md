@@ -1,8 +1,8 @@
 # Configuration Reference
 
-All runtime configuration lives in `configs/sentinel.toml` (TOML format). At startup, each binary looks for this file in the current working directory, then falls back to `~/.config/sentinel/sentinel.toml`.
+All runtime configuration lives in `configs/arqenor.toml` (TOML format). At startup, each binary looks for this file in the current working directory, then falls back to `~/.config/arqenor/arqenor.toml`.
 
-Override the path with the `--config <path>` flag (CLI / gRPC server) or `SENTINEL_CONFIG` environment variable.
+Override the path with the `--config <path>` flag (CLI / gRPC server) or `ARQENOR_CONFIG` environment variable.
 
 ---
 
@@ -28,7 +28,7 @@ data_dir = "./data"
 # ─────────────────────────────────────────────
 [grpc]
 
-# Address of the Rust sentinel-grpc server (HostAnalyzer service).
+# Address of the Rust arqenor-grpc server (HostAnalyzer service).
 # Change only if running gRPC on a non-default port or remote host.
 host_analyzer_addr = "127.0.0.1:50051"
 
@@ -120,12 +120,12 @@ min_severity = "medium"
 
 ## Environment variable overrides
 
-Any config key can be overridden via environment variables using the pattern `SENTINEL_<SECTION>_<KEY>` (uppercase, underscores):
+Any config key can be overridden via environment variables using the pattern `ARQENOR_<SECTION>_<KEY>` (uppercase, underscores):
 
 ```bash
-SENTINEL_GENERAL_LOG_LEVEL=debug
-SENTINEL_API_LISTEN_ADDR=0.0.0.0:9090
-SENTINEL_ALERTS_MIN_SEVERITY=info
+ARQENOR_GENERAL_LOG_LEVEL=debug
+ARQENOR_API_LISTEN_ADDR=0.0.0.0:9090
+ARQENOR_ALERTS_MIN_SEVERITY=info
 ```
 
 Environment variables take precedence over the TOML file.
@@ -138,8 +138,8 @@ Use separate config files and pass `--config`:
 
 ```bash
 # Development — verbose, scan temp dirs
-sentinel-grpc --config configs/sentinel.dev.toml
+arqenor-grpc --config configs/arqenor.dev.toml
 
 # Production — medium+ alerts only, scan system dirs
-sentinel-grpc --config configs/sentinel.prod.toml
+arqenor-grpc --config configs/arqenor.prod.toml
 ```

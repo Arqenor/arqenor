@@ -2,51 +2,51 @@
 
 ## Starting the stack
 
-SENTINEL has three independent binaries. Run them in order:
+ARQENOR has three independent binaries. Run them in order:
 
 ```bash
 # 1. Host analyzer gRPC server (Rust)
-./sentinel-grpc
+./arqenor-grpc
 
 # 2. REST orchestrator (Go) — optional, needed for HTTP clients
 ./orchestrator
 
 # 3. Your preferred interface
-./sentinel scan          # one-shot CLI
-./sentinel watch         # continuous CLI
-./sentinel-tui           # live dashboard
+./arqenor scan          # one-shot CLI
+./arqenor watch         # continuous CLI
+./arqenor-tui           # live dashboard
 ```
 
 All three can run simultaneously. The TUI and CLI can operate without the orchestrator — they call the platform library directly.
 
 ---
 
-## CLI (`sentinel`)
+## CLI (`arqenor`)
 
 ### One-shot scan
 
 ```bash
 # Scan running processes
-sentinel scan --host
+arqenor scan --host
 
 # Scan persistence mechanisms
-sentinel scan --persistence
+arqenor scan --persistence
 
 # Both, machine-readable JSON
-sentinel scan --host --persistence --json
+arqenor scan --host --persistence --json
 
 # Pipe to jq
-sentinel scan --host --json | jq '.processes[] | select(.risk == "HIGH")'
+arqenor scan --host --json | jq '.processes[] | select(.risk == "HIGH")'
 ```
 
 ### Continuous watch
 
 ```bash
 # Default: repeat every 30 seconds
-sentinel watch
+arqenor watch
 
 # Custom interval
-sentinel watch --interval 10
+arqenor watch --interval 10
 ```
 
 Watch mode prints only changes (new processes, new persistence entries, changed file hashes) relative to the previous snapshot.
@@ -59,20 +59,20 @@ Watch mode prints only changes (new processes, new persistence entries, changed 
 | `1` | Anomalies detected |
 | `2` | Runtime error (config missing, permission denied) |
 
-This makes `sentinel scan` scriptable in CI pipelines:
+This makes `arqenor scan` scriptable in CI pipelines:
 
 ```bash
-sentinel scan --host --persistence || alert "SENTINEL detected threats on $(hostname)"
+arqenor scan --host --persistence || alert "ARQENOR detected threats on $(hostname)"
 ```
 
 ---
 
-## Terminal UI (`sentinel-tui`)
+## Terminal UI (`arqenor-tui`)
 
 Launch with no arguments:
 
 ```bash
-./sentinel-tui
+./arqenor-tui
 ```
 
 ### Tab: Processes
@@ -146,20 +146,20 @@ Use `grpcurl` for quick manual testing:
 go install github.com/fullstorydev/grpcurl/cmd/grpcurl@latest
 
 # Health check
-grpcurl -plaintext 127.0.0.1:50051 sentinel.HostAnalyzer/Health
+grpcurl -plaintext 127.0.0.1:50051 arqenor.HostAnalyzer/Health
 
 # Process snapshot
-grpcurl -plaintext 127.0.0.1:50051 sentinel.HostAnalyzer/GetProcessSnapshot
+grpcurl -plaintext 127.0.0.1:50051 arqenor.HostAnalyzer/GetProcessSnapshot
 
 # Watch process events (streams until Ctrl+C)
-grpcurl -plaintext 127.0.0.1:50051 sentinel.HostAnalyzer/WatchProcesses
+grpcurl -plaintext 127.0.0.1:50051 arqenor.HostAnalyzer/WatchProcesses
 
 # Filesystem scan
 grpcurl -plaintext -d '{"root_path":"C:\\\\Users","recursive":true}' \
-  127.0.0.1:50051 sentinel.HostAnalyzer/ScanFilesystem
+  127.0.0.1:50051 arqenor.HostAnalyzer/ScanFilesystem
 
 # Persistence detection
-grpcurl -plaintext 127.0.0.1:50051 sentinel.HostAnalyzer/GetPersistence
+grpcurl -plaintext 127.0.0.1:50051 arqenor.HostAnalyzer/GetPersistence
 ```
 
 ---
@@ -170,16 +170,16 @@ On first run, every persistence entry will be flagged as `NEW`. Follow this work
 
 ```bash
 # 1. Lower severity threshold temporarily
-SENTINEL_ALERTS_MIN_SEVERITY=info sentinel scan --persistence --json > baseline_review.json
+ARQENOR_ALERTS_MIN_SEVERITY=info arqenor scan --persistence --json > baseline_review.json
 
 # 2. Review — remove any entries you don't recognise before accepting
 cat baseline_review.json | jq '.persistence[]'
 
 # 3. Accept the baseline in TUI: launch, switch to Persistence tab, press r
-./sentinel-tui
+./arqenor-tui
 
 # 4. Subsequent runs will only flag NEW entries not in the accepted baseline
-sentinel scan --persistence
+arqenor scan --persistence
 ```
 
 ---
@@ -188,10 +188,10 @@ sentinel scan --persistence
 
 ```bash
 # Watch C:\Downloads for any new executables
-sentinel-grpc &
+arqenor-grpc &
 grpcurl -plaintext \
   -d '{"root_path":"C:\\\\Downloads","recursive":true,"extensions":[".exe",".dll",".ps1",".bat"]}' \
-  127.0.0.1:50051 sentinel.HostAnalyzer/WatchFilesystem
+  127.0.0.1:50051 arqenor.HostAnalyzer/WatchFilesystem
 ```
 
 ---
@@ -200,12 +200,12 @@ grpcurl -plaintext \
 
 ```yaml
 # GitHub Actions example
-- name: SENTINEL threat check
+- name: ARQENOR threat check
   run: |
-    ./sentinel scan --host --persistence --json > results.json
+    ./arqenor scan --host --persistence --json > results.json
     HIGH=$(jq '[.processes[] | select(.risk == "HIGH" or .risk == "CRITICAL")] | length' results.json)
     if [ "$HIGH" -gt 0 ]; then
-      echo "::error::SENTINEL detected $HIGH high-risk processes"
+      echo "::error::ARQENOR detected $HIGH high-risk processes"
       exit 1
     fi
 ```

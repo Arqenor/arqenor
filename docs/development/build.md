@@ -7,12 +7,12 @@ The Rust code lives under `rust/` as a Cargo workspace. The workspace root `Carg
 ```toml
 [workspace]
 members = [
-    "sentinel-core",
-    "sentinel-platform",
-    "sentinel-grpc",
-    "sentinel-store",
-    "sentinel-tui",
-    "sentinel-cli",
+    "arqenor-core",
+    "arqenor-platform",
+    "arqenor-grpc",
+    "arqenor-store",
+    "arqenor-tui",
+    "arqenor-cli",
 ]
 resolver = "2"
 ```
@@ -24,15 +24,15 @@ resolver = "2"
 cargo check --workspace
 
 # Build specific binary
-cargo build --release -p sentinel-cli
-cargo build --release -p sentinel-tui
-cargo build --release -p sentinel-grpc   # requires protoc
+cargo build --release -p arqenor-cli
+cargo build --release -p arqenor-tui
+cargo build --release -p arqenor-grpc   # requires protoc
 
 # Run tests
 cargo test --workspace
 
-# Run tests excluding sentinel-grpc (if protoc unavailable)
-cargo test --workspace --exclude sentinel-grpc
+# Run tests excluding arqenor-grpc (if protoc unavailable)
+cargo test --workspace --exclude arqenor-grpc
 
 # Linting
 cargo clippy --workspace -- -D warnings
@@ -41,12 +41,12 @@ cargo clippy --workspace -- -D warnings
 cargo fmt --all
 ```
 
-### Why `sentinel-grpc` is excluded from some commands
+### Why `arqenor-grpc` is excluded from some commands
 
-`sentinel-grpc/build.rs` runs `tonic-build` which invokes `protoc`. If `protoc` is not installed, `cargo check --workspace` will fail. Use `--exclude sentinel-grpc` in that case:
+`arqenor-grpc/build.rs` runs `tonic-build` which invokes `protoc`. If `protoc` is not installed, `cargo check --workspace` will fail. Use `--exclude arqenor-grpc` in that case:
 
 ```bash
-cargo check --workspace --exclude sentinel-grpc
+cargo check --workspace --exclude arqenor-grpc
 ```
 
 ---
@@ -55,7 +55,7 @@ cargo check --workspace --exclude sentinel-grpc
 
 ### Rust (automatic)
 
-`sentinel-grpc/build.rs`:
+`arqenor-grpc/build.rs`:
 
 ```rust
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -71,7 +71,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-Triggered automatically by `cargo build -p sentinel-grpc`. Generated files in `src/generated/` are committed to the repo so that builds without `protoc` can proceed for other crates.
+Triggered automatically by `cargo build -p arqenor-grpc`. Generated files in `src/generated/` are committed to the repo so that builds without `protoc` can proceed for other crates.
 
 ### Go (manual script)
 
@@ -106,7 +106,7 @@ let name = proc.name().to_string();   // already &str
 
 ### cfg-if requirement
 
-`sentinel-platform` uses the `cfg-if` crate for clean platform dispatch in `lib.rs`. Do not replace with `#[cfg]` attribute soup — the crate enforces a single dispatch point.
+`arqenor-platform` uses the `cfg-if` crate for clean platform dispatch in `lib.rs`. Do not replace with `#[cfg]` attribute soup — the crate enforces a single dispatch point.
 
 ---
 
@@ -135,10 +135,10 @@ go vet ./...
 
 ## Release checklist
 
-1. Bump version in `sentinel-core/Cargo.toml` (workspace version)
+1. Bump version in `arqenor-core/Cargo.toml` (workspace version)
 2. Bump version in `go/cmd/orchestrator/main.go` `version` constant
 3. Regenerate Go stubs if protos changed: `./scripts/gen-proto.ps1`
-4. `cargo build --release -p sentinel-cli -p sentinel-tui -p sentinel-grpc`
+4. `cargo build --release -p arqenor-cli -p arqenor-tui -p arqenor-grpc`
 5. `cd go && go build ./cmd/orchestrator`
 6. Run integration smoke test (see `tests/smoke.sh`)
 7. Tag: `git tag v0.x.0`
@@ -168,8 +168,8 @@ Open `go/` as the workspace root so that `go.mod` is at the root.
 
 | Job | Command | When |
 |---|---|---|
-| `check` | `cargo check --workspace --exclude sentinel-grpc` | Every push |
-| `test` | `cargo test --workspace --exclude sentinel-grpc` | Every push |
+| `check` | `cargo check --workspace --exclude arqenor-grpc` | Every push |
+| `test` | `cargo test --workspace --exclude arqenor-grpc` | Every push |
 | `clippy` | `cargo clippy --workspace -- -D warnings` | Every push |
 | `go-test` | `cd go && go test ./...` | Every push |
 | `build-windows` | `cargo build --release ...` on windows runner | Tag |

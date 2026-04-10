@@ -1,4 +1,4 @@
-module sentinel/go
+module arqenor/go
 
 go 1.25.0
 

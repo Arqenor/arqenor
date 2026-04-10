@@ -29,7 +29,7 @@ Malicious indicators:
 3. **Executable heap pages** — heap regions marked executable = JIT or shellcode
 
 ```rust
-// sentinel-platform/src/windows/memory_scan.rs
+// arqenor-platform/src/windows/memory_scan.rs
 
 pub struct MemoryRegion {
     pub base:         usize,
@@ -100,7 +100,7 @@ monitor API calls. Attackers know this and routinely un-hook NTDLL by:
 
 The result: the EDR's hooks are removed. No more visibility into injection APIs.
 
-SENTINEL can detect this attack by checking NTDLL integrity:
+ARQENOR can detect this attack by checking NTDLL integrity:
 
 ```rust
 pub fn check_ntdll_hooks() -> Vec<Alert> {

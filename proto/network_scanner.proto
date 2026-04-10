@@ -1,6 +1,6 @@
 syntax = "proto3";
-package sentinel.network;
-option go_package = "sentinel/go/internal/grpc/generated;sentinelgrpc";
+package arqenor.network;
+option go_package = "arqenor/go/internal/grpc/generated;arqenorgrpc";
 
 import "common.proto";
 import "google/protobuf/empty.proto";
@@ -31,5 +31,5 @@ message HostResult {
 
 service NetworkScanner {
   rpc StartScan(ScanTarget)                          returns (stream HostResult);
-  rpc ReportAnomaly(sentinel.common.Alert)           returns (google.protobuf.Empty);
+  rpc ReportAnomaly(arqenor.common.Alert)           returns (google.protobuf.Empty);
 }

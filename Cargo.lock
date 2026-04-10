@@ -154,6 +154,194 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c3d036a3c4ab069c7b410a2ce876bd74808d2d0888a82667669f8e783a898bf1"
 
 [[package]]
+name = "arqenor-cli"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "arqenor-core",
+ "arqenor-platform",
+ "arqenor-store",
+ "chrono",
+ "clap",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
+name = "arqenor-core"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "base64 0.22.1",
+ "chrono",
+ "hex",
+ "regex",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "sha2",
+ "thiserror 1.0.69",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "arqenor-desktop"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "arqenor-core",
+ "arqenor-platform",
+ "chrono",
+ "dns-lookup",
+ "if-addrs",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-shell",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "arqenor-driver-client"
+version = "0.1.0"
+dependencies = [
+ "arqenor-driver-common",
+ "thiserror 1.0.69",
+ "tokio",
+ "tokio-stream",
+ "tracing",
+ "windows 0.52.0",
+]
+
+[[package]]
+name = "arqenor-driver-common"
+version = "0.1.0"
+
+[[package]]
+name = "arqenor-ebpf"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "libbpf-cargo",
+ "libbpf-rs",
+ "serde",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "arqenor-grpc"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "arqenor-core",
+ "arqenor-platform",
+ "arqenor-store",
+ "chrono",
+ "prost",
+ "prost-types",
+ "protoc-bin-vendored",
+ "serde",
+ "tokio",
+ "tokio-stream",
+ "tonic",
+ "tonic-build",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
+name = "arqenor-ml"
+version = "0.1.0"
+dependencies = [
+ "arqenor-core",
+ "chrono",
+ "hex",
+ "regex",
+ "serde",
+ "sha2",
+ "thiserror 1.0.69",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "arqenor-platform"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "arqenor-core",
+ "arqenor-driver-client",
+ "arqenor-driver-common",
+ "async-trait",
+ "cfg-if",
+ "chrono",
+ "endpoint-sec",
+ "hex",
+ "inotify",
+ "plist",
+ "procfs",
+ "sha2",
+ "sysinfo",
+ "thiserror 1.0.69",
+ "tokio",
+ "tokio-stream",
+ "tracing",
+ "uuid",
+ "walkdir",
+ "windows 0.52.0",
+ "winreg 0.52.0",
+ "wmi",
+ "yara-x",
+]
+
+[[package]]
+name = "arqenor-store"
+version = "0.1.0"
+dependencies = [
+ "arqenor-core",
+ "chrono",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "arqenor-tui"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "arqenor-core",
+ "arqenor-platform",
+ "chrono",
+ "crossterm",
+ "if-addrs",
+ "prost",
+ "prost-types",
+ "protoc-bin-vendored",
+ "ratatui",
+ "tokio",
+ "tokio-stream",
+ "tonic",
+ "tonic-build",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "ascii_tree"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5194,194 +5382,6 @@ checksum = "8a7852d02fc848982e0c167ef163aaff9cd91dc640ba85e263cb1ce46fae51cd"
 dependencies = [
  "serde",
  "serde_core",
-]
-
-[[package]]
-name = "sentinel-cli"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "chrono",
- "clap",
- "sentinel-core",
- "sentinel-platform",
- "sentinel-store",
- "serde_json",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "uuid",
-]
-
-[[package]]
-name = "sentinel-core"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "base64 0.22.1",
- "chrono",
- "hex",
- "regex",
- "reqwest 0.12.28",
- "serde",
- "serde_json",
- "serde_yaml",
- "sha2",
- "thiserror 1.0.69",
- "tokio",
- "tracing",
- "uuid",
-]
-
-[[package]]
-name = "sentinel-desktop"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "chrono",
- "dns-lookup",
- "if-addrs",
- "sentinel-core",
- "sentinel-platform",
- "serde",
- "serde_json",
- "tauri",
- "tauri-build",
- "tauri-plugin-shell",
- "tokio",
- "tracing",
- "uuid",
-]
-
-[[package]]
-name = "sentinel-driver-client"
-version = "0.1.0"
-dependencies = [
- "sentinel-driver-common",
- "thiserror 1.0.69",
- "tokio",
- "tokio-stream",
- "tracing",
- "windows 0.52.0",
-]
-
-[[package]]
-name = "sentinel-driver-common"
-version = "0.1.0"
-
-[[package]]
-name = "sentinel-ebpf"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "libbpf-cargo",
- "libbpf-rs",
- "serde",
- "tokio",
- "tracing",
-]
-
-[[package]]
-name = "sentinel-grpc"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "chrono",
- "prost",
- "prost-types",
- "protoc-bin-vendored",
- "sentinel-core",
- "sentinel-platform",
- "sentinel-store",
- "serde",
- "tokio",
- "tokio-stream",
- "tonic",
- "tonic-build",
- "tracing",
- "tracing-subscriber",
- "uuid",
-]
-
-[[package]]
-name = "sentinel-ml"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "hex",
- "regex",
- "sentinel-core",
- "serde",
- "sha2",
- "thiserror 1.0.69",
- "tracing",
- "uuid",
-]
-
-[[package]]
-name = "sentinel-platform"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "cfg-if",
- "chrono",
- "endpoint-sec",
- "hex",
- "inotify",
- "plist",
- "procfs",
- "sentinel-core",
- "sentinel-driver-client",
- "sentinel-driver-common",
- "sha2",
- "sysinfo",
- "thiserror 1.0.69",
- "tokio",
- "tokio-stream",
- "tracing",
- "uuid",
- "walkdir",
- "windows 0.52.0",
- "winreg 0.52.0",
- "wmi",
- "yara-x",
-]
-
-[[package]]
-name = "sentinel-store"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "rusqlite",
- "sentinel-core",
- "serde",
- "serde_json",
- "thiserror 1.0.69",
- "tracing",
- "uuid",
-]
-
-[[package]]
-name = "sentinel-tui"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "chrono",
- "crossterm",
- "if-addrs",
- "prost",
- "prost-types",
- "protoc-bin-vendored",
- "ratatui",
- "sentinel-core",
- "sentinel-platform",
- "tokio",
- "tokio-stream",
- "tonic",
- "tonic-build",
- "tracing",
- "tracing-subscriber",
 ]
 
 [[package]]

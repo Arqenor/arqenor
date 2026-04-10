@@ -1,11 +1,11 @@
-# SENTINEL — Complete Product Roadmap
+# ARQENOR — Complete Product Roadmap
 > Last updated: 2026-04-10 | Based on 2025-2026 threat intelligence
 
 ---
 
 ## Vision
 
-SENTINEL is an **open-core, cross-platform security monitoring tool** written in Rust.  
+ARQENOR is an **open-core, cross-platform security monitoring tool** written in Rust.  
 Goal: give independent developers, small teams, and security researchers the detection
 capabilities of a commercial EDR — without the $30/endpoint/month price tag.
 
@@ -27,7 +27,7 @@ Cloud intelligence + fleet management + MDR → paid tiers.
 | Desktop app (Tauri v2 + React) | ✅ Done | Tauri v2, Tailwind v4 |
 | Network anomaly detection (baseline diff) | ✅ Done | In-memory HashMap |
 | Hostname resolution (reverse DNS) | ✅ Done | dns-lookup crate |
-| Detection engine + LOLBin rules (15 rules) | ✅ Done | sentinel-core rules engine |
+| Detection engine + LOLBin rules (15 rules) | ✅ Done | arqenor-core rules engine |
 | Extended persistence Win (B1-B9) + Linux (C1-C7) | ✅ Done | Registry, systemd, PAM, SSH, git hooks |
 | File Integrity Monitoring (baseline + real-time) | ✅ Done | ReadDirectoryChangesW / inotify |
 | Credential theft detection (E1-E6) | ✅ Done | LSASS scan, AMSI bypass, ransomware signals |
@@ -48,7 +48,7 @@ Cloud intelligence + fleet management + MDR → paid tiers.
 | BYOVD detection (50 vulnerable drivers) | ✅ Done | EnumDeviceDrivers + LOLDrivers.io blocklist |
 | Pipeline wiring (SIGMA + IOC + Correlation + host scans) | ✅ Done | All 6 dead modules wired into DetectionPipeline |
 | Real-time connection monitoring | ✅ Done | ConnectionMonitor::watch() + polling fallback → beaconing + IOC IP live |
-| Static PE analyzer (sentinel-ml) | ✅ Done | goblin-free PE parser, 25+ features, heuristic scoring, 25 tests |
+| Static PE analyzer (arqenor-ml) | ✅ Done | goblin-free PE parser, 25+ features, heuristic scoring, 25 tests |
 | YARA memory scanning | ✅ Done | yara-x pure Rust, 9 embedded rules (CS/Mimikatz/Sliver/Meterpreter), feature-gated |
 | JA4 TLS fingerprinting | ✅ Done | JA4 algorithm, Client Hello parser, 17 C2 fingerprints, 16 tests |
 
@@ -97,12 +97,12 @@ IMPACT
 
 > **ETW Threat Intelligence provider** — a kernel-mode ETW channel that gives
 > `VirtualAllocEx`, `WriteProcessMemory`, `SetThreadContext`, `QueueUserAPC`
-> callbacks WITH full call-stack context. This is what CrowdStrike and SentinelOne
+> callbacks WITH full call-stack context. This is what CrowdStrike and ArqenorOne
 > use to detect direct/indirect syscall injection, process hollowing, and
 > reflective DLL loading. Open-source tools have ZERO access to this because
 > it requires a PPL-signed (Protected Process Light) kernel driver.
 >
-> SENTINEL's Phase 2 plan: implement a kernel driver + ETW consumer to close this gap.
+> ARQENOR's Phase 2 plan: implement a kernel driver + ETW consumer to close this gap.
 
 ---
 

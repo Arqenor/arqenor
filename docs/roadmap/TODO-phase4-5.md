@@ -8,7 +8,7 @@ Légende : `[ ]` à faire · `[~]` en cours · `[x]` terminé
 
 ## SECTION A — SIGMA Rule Engine (Phase 4.3)
 
-> fichiers : `rust/sentinel-core/src/rules/sigma.rs` + `sigma_condition.rs`
+> fichiers : `rust/arqenor-core/src/rules/sigma.rs` + `sigma_condition.rs`
 
 - [x] **A1** — Parser YAML SIGMA → `SigmaRule` struct
   - `serde_yaml` parsing, `LogSource`, `Detection`, `SelectionGroup`
@@ -19,7 +19,7 @@ Légende : `[ ]` à faire · `[~]` en cours · `[x]` terminé
   - Recursive descent : `and`, `or`, `not`, `(parens)`, `1 of X*`, `all of them`
   - `evaluate()` against `HashMap<String, bool>` selection results
 
-- [x] **A3** — Field mapping SIGMA → SENTINEL (30+ fields)
+- [x] **A3** — Field mapping SIGMA → ARQENOR (30+ fields)
   - `Image` → `image_path`, `CommandLine` → `cmdline`, `TargetObject` → `key_path`...
 
 - [x] **A4** — `load_sigma_rules_from_dir()` + `evaluate()` entry points
@@ -34,7 +34,7 @@ Légende : `[ ]` à faire · `[~]` en cours · `[x]` terminé
 
 ## SECTION B — IOC Threat Intelligence (Phase 4.4)
 
-> fichiers : `rust/sentinel-core/src/ioc/`
+> fichiers : `rust/arqenor-core/src/ioc/`
 
 - [x] **B1** — `IocDatabase` in-memory HashSet (SHA-256, MD5, IP, domain, URL)
   - Subdomain matching (`evil.com` matche `sub.evil.com`)
@@ -59,7 +59,7 @@ Légende : `[ ]` à faire · `[~]` en cours · `[x]` terminé
 
 ## SECTION C — Alert Correlation Engine (Phase 4.5)
 
-> fichiers : `rust/sentinel-core/src/correlation.rs` + `models/incident.rs`
+> fichiers : `rust/arqenor-core/src/correlation.rs` + `models/incident.rs`
 
 - [x] **C1** — `CorrelationEngine` avec PID grouping
   - `active: HashMap<u32, Incident>`, `orphan: HashMap<u64, Incident>`
@@ -84,7 +84,7 @@ Légende : `[ ]` à faire · `[~]` en cours · `[x]` terminé
 
 ## SECTION D — Memory Forensics (Phase 5.1-5.2)
 
-> fichiers : `rust/sentinel-platform/src/windows/`
+> fichiers : `rust/arqenor-platform/src/windows/`
 
 - [x] **D1** — `memory_scan.rs` : VAD tree walk (`VirtualQueryEx` loop)
   - Anonymous executable memory detection (MEM_PRIVATE + EXECUTE)
@@ -113,7 +113,7 @@ Légende : `[ ]` à faire · `[~]` en cours · `[x]` terminé
 
 ## SECTION E — Desktop UI (Phase 4-5 frontend)
 
-> fichiers : `sentinel-desktop/src/pages/`
+> fichiers : `arqenor-desktop/src/pages/`
 
 - [x] **E1** — `Incidents.tsx` : vue incidents avec cards
   - Severity filter, score pills, ATT&CK badges, expandable alerts
@@ -136,12 +136,12 @@ Légende : `[ ]` à faire · `[~]` en cours · `[x]` terminé
 
 ## SECTION F — Remaining (à faire)
 
-- [x] **F1** — PE Static Analyzer (`sentinel-ml` crate)
+- [x] **F1** — PE Static Analyzer (`arqenor-ml` crate)
   - `pe_parser.rs` — parsing PE manuel (DOS → COFF → sections → imports), 100% safe Rust
   - `pe_features.rs` — 25+ features (entropy, imports suspects, RWX, overlay, timestamps)
   - `pe_scorer.rs` — scoring heuristique, classification Clean/Low/Medium/High/Malicious
   - `entropy.rs` + `pe_strings.rs` — Shannon entropy, URL/IP/base64/registry detection
-  - 25 tests, `cargo test -p sentinel-ml` all green
+  - 25 tests, `cargo test -p arqenor-ml` all green
 
 - [ ] **F2** — Process Behavior Anomaly Detection
   - `ProcessBehaviorWindow` (5-min windowed features per process)
@@ -151,10 +151,10 @@ Légende : `[ ]` à faire · `[~]` en cours · `[x]` terminé
 - [x] **F3** — YARA Memory Scanning
   - `yara_scan.rs` — `YaraScanner` via `yara-x` (pure Rust), scan per-process + scan_all
   - `yara_rules.rs` — 9 embedded rules (Cobalt Strike, Meterpreter, Mimikatz, Sliver, Brute Ratel, Havoc, shellcode, PE injection, encoded PS)
-  - Feature-gated `yara` dans `sentinel-platform`
+  - Feature-gated `yara` dans `arqenor-platform`
 
 - [ ] **F4** — SQLite IOC persistence
-  - Persist `IocDatabase` to `sentinel-store` between restarts
+  - Persist `IocDatabase` to `arqenor-store` between restarts
   - Incremental feed updates (delta, not full refresh)
 
 - [x] **F5** — Wiring cleanup — ALL DONE
@@ -173,13 +173,13 @@ Légende : `[ ]` à faire · `[~]` en cours · `[x]` terminé
 
 | Crate | Sections | Statut |
 |-------|----------|--------|
-| `sentinel-core` (rules/sigma) | A1–A4 | ✅ |
-| `sentinel-core` (ioc) | B1–B3 | ✅ |
-| `sentinel-core` (correlation) | C1–C4 | ✅ |
-| `sentinel-platform` (memory) | D1–D4 | ✅ |
-| `sentinel-desktop` (UI) | E1–E5 | ✅ |
-| `sentinel-core` (pipeline wiring) | A5, B4, C5, D5, F5 | ✅ all wired |
-| `sentinel-ml` (nouveau) | F1 | ✅ (F2 behavioral pending) |
-| `sentinel-platform` (yara) | F3 | ✅ |
-| `sentinel-core` (tls_fingerprint) | (Phase 3 F1) | ✅ |
-| `sentinel-store` (ioc persist) | F4 | 🔴 not started |
+| `arqenor-core` (rules/sigma) | A1–A4 | ✅ |
+| `arqenor-core` (ioc) | B1–B3 | ✅ |
+| `arqenor-core` (correlation) | C1–C4 | ✅ |
+| `arqenor-platform` (memory) | D1–D4 | ✅ |
+| `arqenor-desktop` (UI) | E1–E5 | ✅ |
+| `arqenor-core` (pipeline wiring) | A5, B4, C5, D5, F5 | ✅ all wired |
+| `arqenor-ml` (nouveau) | F1 | ✅ (F2 behavioral pending) |
+| `arqenor-platform` (yara) | F3 | ✅ |
+| `arqenor-core` (tls_fingerprint) | (Phase 3 F1) | ✅ |
+| `arqenor-store` (ioc persist) | F4 | 🔴 not started |

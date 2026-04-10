@@ -1,29 +1,29 @@
 # Rust Crates Reference
 
-The Rust workspace lives under `rust/` and contains seven crates (plus two standalone: `sentinel-ebpf`, `sentinel-driver`).
+The Rust workspace lives under `rust/` and contains seven crates (plus two standalone: `arqenor-ebpf`, `arqenor-driver`).
 
 ```
-sentinel-core
-    ├── sentinel-platform
-    ├── sentinel-ml
-    └── sentinel-store
-            ├── sentinel-grpc
-            ├── sentinel-cli
-            └── sentinel-tui
+arqenor-core
+    ├── arqenor-platform
+    ├── arqenor-ml
+    └── arqenor-store
+            ├── arqenor-grpc
+            ├── arqenor-cli
+            └── arqenor-tui
 ```
 
 ---
 
-## sentinel-core
+## arqenor-core
 
-**Path:** `rust/sentinel-core/`
+**Path:** `rust/arqenor-core/`
 **Type:** Library
 **Role:** Domain nucleus — shared traits, models, and error type. Zero platform dependencies.
 
 ### Error type
 
 ```rust
-pub enum SentinelError {
+pub enum ArqenorError {
     Platform(String),
     Io(std::io::Error),
     Database(String),
@@ -94,9 +94,9 @@ pub enum SentinelError {
 
 ---
 
-## sentinel-platform
+## arqenor-platform
 
-**Path:** `rust/sentinel-platform/`
+**Path:** `rust/arqenor-platform/`
 **Type:** Library
 **Role:** Platform-specific implementations selected at compile time via `cfg_if!`.
 
@@ -128,15 +128,15 @@ These are the only entry points. Callers never import platform sub-modules direc
 ### Adding a new platform
 
 1. Create `src/<platform>/` with `process_monitor.rs`, `fs_scanner.rs`, `persistence.rs`
-2. Implement the three traits from `sentinel-core`
+2. Implement the three traits from `arqenor-core`
 3. Add a branch in `src/lib.rs` factory functions inside `cfg_if!`
 4. Add conditional deps in `Cargo.toml` with `[target.'cfg(...)'.dependencies]`
 
 ---
 
-## sentinel-ml
+## arqenor-ml
 
-**Path:** `rust/sentinel-ml/`
+**Path:** `rust/arqenor-ml/`
 **Type:** Library
 **Role:** Static PE analysis and malware scoring. No external ML model — pure heuristic scoring.
 
@@ -164,10 +164,10 @@ pub fn analyze_pe_file(path: &str, data: &[u8]) -> Option<Alert>
 
 ---
 
-## sentinel-grpc
+## arqenor-grpc
 
-**Path:** `rust/sentinel-grpc/`
-**Type:** Binary (`sentinel-grpc`)
+**Path:** `rust/arqenor-grpc/`
+**Type:** Binary (`arqenor-grpc`)
 **Role:** Tonic gRPC server exposing host analysis over the network.
 
 ### Build note
@@ -197,7 +197,7 @@ pub fn analyze_pe_file(path: &str, data: &[u8]) -> Option<Alert>
 ### Internal structure
 
 ```
-sentinel-grpc/
+arqenor-grpc/
 ├── build.rs              # tonic-build invocation
 ├── src/
 │   ├── main.rs           # Tokio runtime, tonic Server::builder
@@ -205,15 +205,15 @@ sentinel-grpc/
 │   │   ├── host_analyzer.rs   # HostAnalyzerService impl
 │   │   └── network_scanner.rs # NetworkScannerService impl (stub)
 │   └── generated/        # Auto-generated — do not edit
-│       ├── sentinel.rs
-│       └── sentinel_grpc.rs
+│       ├── arqenor.rs
+│       └── arqenor_grpc.rs
 ```
 
 ---
 
-## sentinel-store
+## arqenor-store
 
-**Path:** `rust/sentinel-store/`
+**Path:** `rust/arqenor-store/`
 **Type:** Library
 **Role:** SQLite persistence layer using `rusqlite` (bundled libsqlite3).
 
@@ -253,23 +253,23 @@ impl SqliteStore {
 
 ---
 
-## sentinel-cli
+## arqenor-cli
 
-**Path:** `rust/sentinel-cli/`
-**Type:** Binary (`sentinel`)
+**Path:** `rust/arqenor-cli/`
+**Type:** Binary (`arqenor`)
 **Role:** Quick-access command-line scanner.
 
 ### Commands
 
 ```
-sentinel scan [OPTIONS]
+arqenor scan [OPTIONS]
     --host           Include running processes
     --persistence    Include persistence mechanisms
     --json           Output machine-readable JSON
 
-sentinel watch [OPTIONS]
+arqenor watch [OPTIONS]
     --watch-path <PATH>     FIM watch directory (default: C:\Windows\System32 or /etc)
-    --db <PATH>             SQLite database (default: sentinel.db)
+    --db <PATH>             SQLite database (default: arqenor.db)
     --sigma-dir <PATH>      Directory containing SIGMA YAML rules
     --no-ioc                Disable IOC threat-intelligence feed loading
     --yara-dir <PATH>       Custom YARA rules directory (requires --features yara)
@@ -285,7 +285,7 @@ sentinel watch [OPTIONS]
 ### Example output
 
 ```
-$ sentinel scan --host --persistence
+$ arqenor scan --host --persistence
 Processes (42 running)
  PID   PPID  NAME             USER     RISK
  1234  800   chrome.exe       alice    Normal
@@ -300,10 +300,10 @@ Persistence (3 entries)
 
 ---
 
-## sentinel-tui
+## arqenor-tui
 
-**Path:** `rust/sentinel-tui/`
-**Type:** Binary (`sentinel-tui`)
+**Path:** `rust/arqenor-tui/`
+**Type:** Binary (`arqenor-tui`)
 **Role:** Live Ratatui terminal dashboard.
 
 ### Tabs

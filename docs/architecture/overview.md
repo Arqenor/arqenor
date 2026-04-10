@@ -2,9 +2,9 @@
 
 ## Philosophy
 
-SENTINEL follows three core principles:
+ARQENOR follows three core principles:
 
-1. **Trait-first abstraction** — platform behaviour is expressed as Rust traits (`ProcessMonitor`, `FsScanner`, `PersistenceDetector`) defined in `sentinel-core`. No platform `#[cfg]` leaks into business logic.
+1. **Trait-first abstraction** — platform behaviour is expressed as Rust traits (`ProcessMonitor`, `FsScanner`, `PersistenceDetector`) defined in `arqenor-core`. No platform `#[cfg]` leaks into business logic.
 2. **gRPC as the internal bus** — all host analysis data flows through typed Protobuf messages over gRPC, giving language-agnostic, versioned contracts between Rust and Go.
 3. **SQLite-local, cloud-optional** — everything persists locally first; the cloud tier (commercial) syncs on top.
 
@@ -17,7 +17,7 @@ SENTINEL follows three core principles:
 │                           User Interfaces                           │
 │                                                                     │
 │   ┌──────────────┐   ┌──────────────┐   ┌───────────────────────┐  │
-│   │ sentinel-tui │   │ sentinel-cli │   │  HTTP / REST clients  │  │
+│   │ arqenor-tui │   │ arqenor-cli │   │  HTTP / REST clients  │  │
 │   │  (Ratatui)   │   │   (clap)     │   │  curl, web UI, etc.   │  │
 │   └──────┬───────┘   └──────┬───────┘   └──────────┬────────────┘  │
 │          │ direct lib        │ direct lib            │ HTTP :8080    │
@@ -33,7 +33,7 @@ SENTINEL follows three core principles:
            │    │                         │ gRPC (protobuf)
            ▼    ▼                         ▼
    ┌────────────────────────────────────────────────┐
-   │               sentinel-grpc (Tonic)            │
+   │               arqenor-grpc (Tonic)            │
    │               HostAnalyzer  :50051             │
    │               NetworkScanner :50052 (planned)  │
    └──────────────────────┬─────────────────────────┘
@@ -41,7 +41,7 @@ SENTINEL follows three core principles:
           ┌───────────────┼───────────────┐
           ▼               ▼               ▼
   ┌──────────────┐ ┌────────────┐ ┌────────────┐
-  │sentinel-     │ │sentinel-   │ │sentinel-   │
+  │arqenor-     │ │arqenor-   │ │arqenor-   │
   │platform      │ │store       │ │core        │
   │              │ │(SQLite)    │ │(traits)    │
   │ Windows ───┐ │ │            │ │            │
@@ -58,9 +58,9 @@ SENTINEL follows three core principles:
 ```
 CLI / TUI
    │
-   │ calls sentinel-platform::new_process_monitor()
+   │ calls arqenor-platform::new_process_monitor()
    ▼
-sentinel-platform (factory)
+arqenor-platform (factory)
    │
    │ cfg_if! selects Windows / Linux / macOS impl
    ▼
@@ -68,11 +68,11 @@ sysinfo / procfs / etc.
    │
    │ returns Vec<ProcessInfo>
    ▼
-sentinel-core ProcessInfo models
+arqenor-core ProcessInfo models
    │
-   │ optionally stored via sentinel-store
+   │ optionally stored via arqenor-store
    ▼
-SQLite (data/sentinel.db)
+SQLite (data/arqenor.db)
 ```
 
 When accessed via gRPC:
@@ -81,8 +81,8 @@ When accessed via gRPC:
 Client (TUI or Go)
    │ GetProcessSnapshot()
    ▼
-sentinel-grpc HostAnalyzerService
-   │ calls sentinel-platform internally
+arqenor-grpc HostAnalyzerService
+   │ calls arqenor-platform internally
    ▼
 same factory → platform impl → Vec<ProcessInfo>
    │ serialized as protobuf ProcessInfo
@@ -112,7 +112,7 @@ ConnWatch ────────► conn_tx ───┘   │  • 9 file-pat
                                                   │ Alert
                                    ┌──────────────┴──────────────┐
                                    ▼                              ▼
-                           stdout / TUI                   sentinel-store
+                           stdout / TUI                   arqenor-store
                                                        insert_alert(SQLite)
 ```
 
@@ -120,12 +120,12 @@ ConnWatch ────────► conn_tx ───┘   │  • 9 file-pat
 
 ```
 Any detector (platform impl)
-   │ emits SentinelError or Alert struct
+   │ emits ArqenorError or Alert struct
    ▼
-sentinel-grpc service handler
+arqenor-grpc service handler
    │ maps to Alert{severity, kind, message, metadata}
    ▼
-sentinel-store::insert_alert()
+arqenor-store::insert_alert()
    │ persists to SQLite alerts table
    ▼
 Go orchestrator polls / streams
@@ -168,7 +168,7 @@ External client or TUI
 ## Thread / Task Model
 
 ```
-sentinel-cli watch process
+arqenor-cli watch process
 ├── Tokio runtime (multi-thread)
 │   ├── ProcessMonitor::watch() → proc_tx (spawn_blocking on Win, spawn on Linux)
 │   ├── FsScanner::watch_path() → fim_tx (spawn_blocking)
@@ -177,13 +177,13 @@ sentinel-cli watch process
 │   └── Alert consumer loop (print + forward to db_tx)
 ├── std::thread — DB writer (SqliteStore::insert_alert in blocking loop)
 │
-sentinel-grpc process
+arqenor-grpc process
 ├── Tokio runtime (multi-thread)
 │   ├── tonic gRPC listener task
 │   ├── HostAnalyzerService tasks (one per RPC call)
 │   └── Background refresh task (optional interval scan)
 │
-sentinel-tui process
+arqenor-tui process
 ├── Tokio runtime
 │   ├── Data fetch task (calls gRPC or platform directly)
 │   └── TUI event loop (crossterm input + ratatui render)
@@ -200,7 +200,7 @@ Go orchestrator process
 
 | Concern | Mitigation |
 |---|---|
-| Privilege escalation | SENTINEL reads only; no kernel writes by default |
+| Privilege escalation | ARQENOR reads only; no kernel writes by default |
 | Local API exposure | REST and gRPC bound to `127.0.0.1` by default |
 | Sensitive data at rest | SQLite not encrypted in Phase 1; encryption planned Phase 4 |
 | Proto injection | Typed protobuf — no raw string parsing on the wire |

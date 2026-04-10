@@ -33,9 +33,9 @@ Liveness check. Returns orchestrator status and gRPC connectivity.
 | Field | Type | Description |
 |---|---|---|
 | `status` | string | `"ok"` or `"degraded"` |
-| `grpc_connected` | bool | Whether the gRPC connection to `sentinel-grpc` is alive |
-| `platform` | string | OS of the sentinel-grpc server |
-| `version` | string | sentinel-grpc version |
+| `grpc_connected` | bool | Whether the gRPC connection to `arqenor-grpc` is alive |
+| `platform` | string | OS of the arqenor-grpc server |
+| `version` | string | arqenor-grpc version |
 
 **Example:**
 
@@ -184,7 +184,7 @@ List known network hosts from the most recent network scan.
 
 | Code | HTTP | Description |
 |---|---|---|
-| `GRPC_UNAVAILABLE` | 503 | Cannot reach `sentinel-grpc` |
+| `GRPC_UNAVAILABLE` | 503 | Cannot reach `arqenor-grpc` |
 | `SCAN_NOT_FOUND` | 404 | Scan ID does not exist |
 | `INVALID_SEVERITY` | 400 | Unknown severity value |
 | `INVALID_SCAN_TYPE` | 400 | Unknown scan type |
