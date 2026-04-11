@@ -5,7 +5,7 @@
 
 use arqenor_core::error::ArqenorError;
 use std::collections::HashSet;
-use windows::core::{ComInterface, BSTR};
+use windows::core::{Interface, BSTR};
 use windows::Win32::NetworkManagement::WindowsFirewall::{
     INetFwPolicy2, INetFwRule, INetFwRules, NetFwPolicy2, NET_FW_ACTION_BLOCK, NET_FW_RULE_DIR_IN,
 };

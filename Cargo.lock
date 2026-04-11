@@ -193,7 +193,7 @@ dependencies = [
  "tracing",
  "uuid",
  "walkdir",
- "windows 0.52.0",
+ "windows 0.59.0",
  "winreg",
  "wmi",
 ]

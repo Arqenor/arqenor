@@ -179,14 +179,14 @@ fn evt_watch_loop(tx: Sender<ProcessEvent>) {
 
         // Subscribe to future Security log events (signal-based, no callback)
         let sub = match EvtSubscribe(
-            EVT_HANDLE(0), // local session
-            signal,        // signal handle
+            None,         // local session
+            Some(signal), // signal handle
             PCWSTR::from_raw(channel.as_ptr()),
             PCWSTR::from_raw(query.as_ptr()),
-            EVT_HANDLE(0), // no bookmark
-            None,          // no context
-            None,          // no callback
-            1u32,          // EvtSubscribeToFutureEvents
+            None, // no bookmark
+            None, // no context
+            None, // no callback
+            1u32, // EvtSubscribeToFutureEvents
         ) {
             Ok(h) => h,
             Err(_) => {
@@ -256,7 +256,7 @@ unsafe fn render_event(handle: EVT_HANDLE, buf: &mut Vec<u16>) -> Option<Process
 
     // First try with the pre-allocated buffer
     let render_ok = EvtRender(
-        EVT_HANDLE(0),
+        None,
         handle,
         1u32, // EvtRenderEventXml
         (buf.len() * 2) as u32,
@@ -272,7 +272,7 @@ unsafe fn render_event(handle: EVT_HANDLE, buf: &mut Vec<u16>) -> Option<Process
         // Buffer too small — resize and retry
         buf.resize((used / 2 + 1) as usize, 0);
         EvtRender(
-            EVT_HANDLE(0),
+            None,
             handle,
             1u32,
             (buf.len() * 2) as u32,

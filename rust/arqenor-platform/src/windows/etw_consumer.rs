@@ -330,6 +330,7 @@ impl EtwConsumer {
                 PCWSTR(session_name_w.as_ptr()),
                 props.as_mut_ptr() as *mut EVENT_TRACE_PROPERTIES,
             )
+            .ok()
         };
 
         if let Err(e) = start_result {
@@ -356,6 +357,7 @@ impl EtwConsumer {
                         PCWSTR(session_name_w.as_ptr()),
                         props.as_mut_ptr() as *mut EVENT_TRACE_PROPERTIES,
                     )
+                    .ok()
                 }
                 .map_err(|e2| ArqenorError::Platform(format!("StartTrace (retry): {e2}")))?;
             } else {
@@ -376,6 +378,7 @@ impl EtwConsumer {
                     0,                     // synchronous (wait for enable to complete)
                     None,
                 )
+                .ok()
             } {
                 // Warn but continue — some providers (e.g. Security-Auditing)
                 // require elevated privileges that may not always be present.
@@ -411,7 +414,7 @@ impl EtwConsumer {
             .spawn(move || {
                 // SAFETY: `th` is a valid open trace handle obtained from OpenTraceW.
                 // ProcessTrace blocks until CloseTrace(th) is called.
-                if let Err(e) = unsafe { ProcessTrace(&[th], None, None) } {
+                if let Err(e) = unsafe { ProcessTrace(&[th], None, None).ok() } {
                     tracing::debug!("ProcessTrace exited: {e}");
                 }
                 tracing::debug!("etw-processor thread exiting");

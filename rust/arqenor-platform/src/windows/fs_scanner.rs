@@ -13,7 +13,7 @@ use uuid::Uuid;
 use walkdir::WalkDir;
 
 use windows::core::PCWSTR;
-use windows::Win32::Foundation::CloseHandle;
+use windows::Win32::Foundation::{CloseHandle, HANDLE};
 use windows::Win32::Storage::FileSystem::{
     CreateFileW, ReadDirectoryChangesW, FILE_FLAG_BACKUP_SEMANTICS, FILE_NOTIFY_CHANGE_DIR_NAME,
     FILE_NOTIFY_CHANGE_FILE_NAME, FILE_NOTIFY_CHANGE_LAST_WRITE, FILE_NOTIFY_CHANGE_SECURITY,
@@ -192,7 +192,23 @@ impl FsScanner for WindowsFsScanner {
             .map_err(|e| ArqenorError::Platform(e.to_string()))?
         };
 
+        // `HANDLE` wraps `*mut c_void` as of `windows` 0.59, which makes it
+        // `!Send` by default. The OS kernel handle itself is thread-safe for
+        // our usage here (we only touch it from the spawned blocking thread,
+        // never concurrently), so we transport it across the thread boundary
+        // via a `Send` newtype.
+        struct SendHandle(HANDLE);
+        // SAFETY: Only one thread (the spawned blocking task) ever touches the
+        // contained HANDLE after construction, and the kernel object is safe
+        // to use from any single thread.
+        unsafe impl Send for SendHandle {}
+        let dir_handle = SendHandle(dir_handle);
+
         tokio::task::spawn_blocking(move || {
+            // Force the closure to capture `dir_handle` as a whole `SendHandle`
+            // (not the field `dir_handle.0`) so that the closure stays `Send`.
+            let dir_handle = dir_handle;
+            let dir_handle = dir_handle.0;
             // 16 KB DWORD-aligned buffer (u32 guarantees 4-byte alignment)
             let mut buf = vec![0u32; 4096];
             let buf_bytes = (buf.len() * std::mem::size_of::<u32>()) as u32;
