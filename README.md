@@ -1,5 +1,8 @@
 # ARQENOR
 
+[![CI](https://github.com/Arqenor/arqenor/actions/workflows/ci.yml/badge.svg?branch=dev)](https://github.com/Arqenor/arqenor/actions/workflows/ci.yml)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+
 **Open-source EDR (Endpoint Detection & Response)** — cross-platform, built in Rust and Go.
 
 ARQENOR gives independent developers, small teams, and security researchers commercial-grade detection capabilities without the $30/endpoint/month price tag. Real-time monitoring of processes, filesystem, network connections, persistence mechanisms, and memory — with SIGMA rules, IOC threat intelligence, YARA scanning, and alert correlation built in.
