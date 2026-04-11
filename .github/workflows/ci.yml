@@ -19,7 +19,7 @@ jobs:
     name: Rust / rustfmt
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Install stable toolchain (rustfmt)
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -31,7 +31,7 @@ jobs:
     name: Rust / clippy + test (Linux)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Install stable toolchain (clippy)
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -81,7 +81,7 @@ jobs:
     name: Rust / check (Windows)
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Install stable toolchain
         uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
@@ -92,7 +92,7 @@ jobs:
     name: Go / vet + test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: actions/setup-go@v5
         with:
           go-version: "1.25"
