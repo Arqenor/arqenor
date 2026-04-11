@@ -12,7 +12,7 @@ arqenor-core     = { path = "../arqenor-core" }
 arqenor-platform = { path = "../arqenor-platform", features = ["firewall-check"] }
 chrono            = { workspace = true }
 tokio-stream      = { workspace = true }
-if-addrs          = "0.13"
+if-addrs          = "0.15"
 ratatui        = { workspace = true }
 crossterm      = { workspace = true }
 tokio          = { workspace = true }
