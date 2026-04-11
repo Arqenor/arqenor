@@ -8,7 +8,7 @@ tracing = { workspace = true }
 serde   = { workspace = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
-libbpf-rs = "0.21"
+libbpf-rs = "0.26"
 tokio     = { workspace = true }
 anyhow    = { workspace = true }
 
