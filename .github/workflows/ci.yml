@@ -46,14 +46,21 @@ jobs:
           # ``bpftool`` lives in the kernel-specific package on GHA runners.
           sudo apt-get install -y "linux-tools-$(uname -r)" || true
       - name: Generate vmlinux.h for eBPF probes
+        shell: bash {0}
         run: |
-          if [ -r /sys/kernel/btf/vmlinux ] && command -v bpftool >/dev/null; then
-            sudo bpftool btf dump file /sys/kernel/btf/vmlinux format c \
-              > arqenor-ebpf/src/probes/vmlinux.h
-          else
-            echo "::warning::BTF vmlinux or bpftool missing — excluding arqenor-ebpf from clippy/test"
-            echo "SKIP_EBPF=1" >> "$GITHUB_ENV"
+          # GHA runners ship a "bpftool" stub from linux-tools-common that
+          # exits non-zero when no matching kernel package is installed.
+          # Probe with ``bpftool version`` to detect a real installation.
+          if [ -r /sys/kernel/btf/vmlinux ] && sudo bpftool version >/dev/null 2>&1; then
+            if sudo bpftool btf dump file /sys/kernel/btf/vmlinux format c \
+                 > arqenor-ebpf/src/probes/vmlinux.h; then
+              echo "vmlinux.h generated ($(wc -l < arqenor-ebpf/src/probes/vmlinux.h) lines)"
+              exit 0
+            fi
           fi
+          echo "::warning::BTF vmlinux or working bpftool missing — excluding arqenor-ebpf from clippy/test"
+          echo "SKIP_EBPF=1" >> "$GITHUB_ENV"
+          exit 0
       - uses: Swatinem/rust-cache@v2
       - name: cargo clippy --workspace
         run: |
