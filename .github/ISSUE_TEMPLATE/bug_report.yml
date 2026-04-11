@@ -1,0 +1,105 @@
+name: Bug report
+description: Report a reproducible problem in Arqenor
+title: "[bug]: "
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug report!
+
+        **Security issues:** please do **not** file them here — see
+        [SECURITY.md](../../SECURITY.md) for private disclosure.
+
+  - type: input
+    id: version
+    attributes:
+      label: Arqenor version / commit
+      description: Output of `arqenor --version` or the commit SHA you built from.
+      placeholder: "0.1.0 (commit 95a9f08)"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Windows 10
+        - Windows 11
+        - Linux (specify distro below)
+        - macOS
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: os-details
+    attributes:
+      label: OS details
+      description: Distribution, kernel version, architecture.
+      placeholder: "Ubuntu 24.04, kernel 6.8, x86_64"
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Affected component
+      options:
+        - arqenor-cli
+        - arqenor-tui
+        - arqenor-grpc
+        - arqenor-core (rules / pipeline / correlation)
+        - arqenor-platform (ETW / ESF / connections / memory / YARA)
+        - arqenor-store
+        - arqenor-ebpf
+        - Go orchestrator (REST API)
+        - Build / packaging
+        - Docs
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Minimal, deterministic steps. Include commands and config if relevant.
+      placeholder: |
+        1. Run `arqenor watch --sigma-dir ./rules`
+        2. ...
+        3. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / output
+      description: |
+        Relevant log output, stack traces, or error messages.
+        **Please redact any sensitive data (paths, hostnames, tokens, user names).**
+      render: shell
+
+  - type: checkboxes
+    id: confirmations
+    attributes:
+      label: Confirmations
+      options:
+        - label: I searched existing issues and did not find a duplicate.
+          required: true
+        - label: This is not a security vulnerability (see SECURITY.md for those).
+          required: true

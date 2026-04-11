@@ -1,0 +1,10 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/Arqenor/arqenor/security/advisories/new
+    about: >
+      Please do NOT report security issues as public GitHub issues.
+      Use a private security advisory. See SECURITY.md for details.
+  - name: Questions and discussion
+    url: https://github.com/Arqenor/arqenor/discussions
+    about: For usage questions, ideas, and general discussion.
