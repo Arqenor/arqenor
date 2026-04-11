@@ -30,7 +30,7 @@ rusqlite           = { version = "0.31", features = ["bundled"] }
 walkdir            = "2"
 config             = "0.14"
 toml               = "0.8"
-ratatui            = "0.27"
+ratatui            = "0.30"
 crossterm          = "0.27"
 clap               = { version = "4", features = ["derive"] }
 sysinfo            = "0.30"
