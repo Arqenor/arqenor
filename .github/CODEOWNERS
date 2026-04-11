@@ -1,0 +1,6 @@
+# Code owners for Arqenor.
+# Docs: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-security/customizing-your-repository/about-code-owners
+#
+# The order is important: the last matching pattern wins.
+
+* @MikeRoss27

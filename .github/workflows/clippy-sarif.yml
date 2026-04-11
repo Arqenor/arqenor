@@ -1,0 +1,57 @@
+name: Rust Clippy (SARIF)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: "0 6 * * 1"
+
+permissions:
+  contents: read
+  security-events: write
+
+concurrency:
+  group: clippy-sarif-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  clippy-sarif:
+    name: Clippy SARIF upload
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install stable toolchain (clippy)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install clippy-sarif + sarif-fmt
+        run: cargo install clippy-sarif sarif-fmt --locked
+
+      - name: Run clippy (workspace, excluding arqenor-ebpf)
+        run: |
+          set -o pipefail
+          cargo clippy \
+            --workspace --exclude arqenor-ebpf \
+            --all-targets --all-features \
+            --message-format=json \
+            -- -D warnings \
+            | clippy-sarif \
+            | tee rust-clippy-results.sarif \
+            | sarif-fmt
+        continue-on-error: true
+
+      - name: Upload SARIF to GitHub code scanning
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: rust-clippy-results.sarif
+          category: clippy
+          wait-for-processing: true
