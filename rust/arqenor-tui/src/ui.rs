@@ -106,7 +106,7 @@ fn risk_bar(score: u8) -> String {
 // ─── Main draw ─────────────────────────────────────────────────────────────────
 
 pub fn draw(f: &mut Frame, app: &mut App) {
-    let area = f.size();
+    let area = f.area();
 
     let root = Layout::default()
         .direction(Direction::Vertical)
