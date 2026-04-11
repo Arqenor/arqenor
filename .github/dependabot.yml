@@ -11,6 +11,25 @@ updates:
         update-types:
           - "minor"
           - "patch"
+      rust-major:
+        update-types:
+          - "major"
+      windows-ecosystem:
+        patterns:
+          - "windows"
+          - "windows-*"
+          - "wmi"
+      tonic-prost-stack:
+        patterns:
+          - "tonic"
+          - "tonic-*"
+          - "prost"
+          - "prost-*"
+      ebpf-stack:
+        patterns:
+          - "libbpf-*"
+          - "aya"
+          - "aya-*"
     labels:
       - "dependencies"
       - "rust"
@@ -26,6 +45,9 @@ updates:
         update-types:
           - "minor"
           - "patch"
+      go-major:
+        update-types:
+          - "major"
     labels:
       - "dependencies"
       - "go"
@@ -35,6 +57,10 @@ updates:
     schedule:
       interval: "weekly"
       day: "monday"
+    groups:
+      actions-all:
+        patterns:
+          - "*"
     labels:
       - "dependencies"
       - "ci"
