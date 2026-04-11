@@ -34,10 +34,10 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-async fn run_app<B: ratatui::backend::Backend>(
-    term: &mut Terminal<B>,
-    app: &mut App,
-) -> Result<()> {
+async fn run_app<B: ratatui::backend::Backend>(term: &mut Terminal<B>, app: &mut App) -> Result<()>
+where
+    B::Error: Send + Sync + 'static,
+{
     loop {
         term.draw(|f| ui::draw(f, app))?;
 
