@@ -24,7 +24,7 @@ jobs:
     name: Clippy SARIF upload
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install stable toolchain (clippy)
         uses: dtolnay/rust-toolchain@stable
@@ -50,7 +50,7 @@ jobs:
         continue-on-error: true
 
       - name: Upload SARIF to GitHub code scanning
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: rust-clippy-results.sarif
           category: clippy
