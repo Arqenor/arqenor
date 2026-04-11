@@ -40,9 +40,6 @@ ARQENOR gives independent developers, small teams, and security researchers comm
 
 ## Screenshots
 
-### Desktop App (Tauri v2)
-![ARQENOR Desktop App](images/desktop-app-v-0-1.png)
-
 ### Terminal UI (Ratatui)
 ![ARQENOR Terminal UI](images/terminal-ui.png)
 
@@ -62,9 +59,7 @@ ARQENOR gives independent developers, small teams, and security researchers comm
 | **Processes** | Snapshot + streaming monitor, SHA-256 hashing, risk scoring, real-time connection monitoring |
 | **Persistence** | Win: Registry, Tasks, Services, WMI, COM, BITS, AppInit, IFEO (B1-B9) · Lin: Cron, Systemd, LD_PRELOAD, PAM, SSH, git hooks (C1-C7) · Mac: LaunchDaemon/Agent, login items, auth plugins |
 | **Filesystem** | FIM baseline + real-time watch (ReadDirectoryChangesW / inotify / ESF) |
-| **Kernel Telemetry** | ETW (10 providers, TDH parsing) · eBPF (5 probes) · ESF (macOS) · WDK kernel driver |
-| **PE Analyzer** | 25+ static features, heuristic scoring, string analysis (arqenor-ml) |
-| **Desktop App** | Tauri v2 + React: Incidents, Memory Forensics, Threat Intel pages |
+| **Kernel Telemetry** | ETW (10 providers, TDH parsing) · eBPF (5 probes) · ESF (macOS) |
 | **TUI** | Live Ratatui dashboard with alert streaming |
 | **CLI** | `arqenor scan` · `arqenor watch --sigma-dir --yara-dir --no-ioc` |
 | **API** | REST (Go/Gin) + gRPC (Rust/Tonic) + SSE alert streaming |
@@ -88,7 +83,7 @@ ARQENOR gives independent developers, small teams, and security researchers comm
 
 ```bash
 # 1. Clone
-git clone https://github.com/your-org/arqenor.git
+git clone https://github.com/Arqenor/arqenor.git
 cd arqenor
 
 # 2. Build all Rust binaries
@@ -128,19 +123,16 @@ arqenor/
 ├── rust/
 │   ├── arqenor-core/       # Domain nucleus: traits, models, pipeline, rules, IOC, correlation
 │   ├── arqenor-platform/   # Win/Lin/Mac: ETW, ESF, connections, memory scan, YARA, BYOVD
-│   ├── arqenor-ml/         # Static PE analyzer (features, scoring, string analysis)
 │   ├── arqenor-grpc/       # Tonic gRPC server (port 50051)
 │   ├── arqenor-store/      # SQLite persistence layer
 │   ├── arqenor-tui/        # Ratatui terminal dashboard
 │   └── arqenor-cli/        # clap CLI (scan / watch)
 ├── arqenor-ebpf/           # Linux eBPF kernel probes (libbpf-rs, 5 probes)
-├── arqenor-driver/         # Windows kernel driver (WDK, minifilter, self-protection)
-├── arqenor-desktop/        # Tauri v2 + React desktop app
 ├── go/
-│   ├── cmd/orchestrator/    # Entry point
-│   ├── internal/api/        # Gin REST handlers + SSE alert streaming
-│   ├── internal/grpc/       # gRPC client + generated stubs
-│   └─��� internal/store/      # Go-side SQLite store
+│   ├── cmd/orchestrator/   # Entry point
+│   ├── internal/api/       # Gin REST handlers + SSE alert streaming
+│   ├── internal/grpc/      # gRPC client + generated stubs
+│   └── internal/store/     # Go-side SQLite store
 ├── proto/                   # Protobuf definitions
 ├── configs/                 # Runtime configuration (arqenor.toml)
 └── docs/                    # Architecture, roadmap, guides
@@ -216,11 +208,18 @@ See [`docs/roadmap/ROADMAP.md`](docs/roadmap/ROADMAP.md) for the full 6-phase pl
 
 ARQENOR is **open-core**:
 
-- **Open source** — `arqenor-core`, `arqenor-platform`, `arqenor-ml`, `arqenor-cli`, `arqenor-tui`, `arqenor-grpc`, `arqenor-ebpf`, `arqenor-driver`
-- **Closed / commercial** — cloud dashboard, threat intelligence feeds, multi-host management, enterprise alerting
+- **Open source** (Apache 2.0, this repo) — `arqenor-core`, `arqenor-platform`, `arqenor-cli`, `arqenor-tui`, `arqenor-grpc`, `arqenor-store`, `arqenor-ebpf`, Go orchestrator
+- **Closed / commercial** (`arqenor-enterprise`) — Windows kernel driver (WDK), ML scorer (PE static analyzer), Tauri desktop app, cloud dashboard, premium threat intelligence feeds, multi-host management, enterprise alerting
+
+---
+
+## Contributing
+
+See [`CONTRIBUTING.md`](CONTRIBUTING.md) for build instructions, commit conventions, and the PR process.
+Security issues: see [`SECURITY.md`](SECURITY.md) — please do **not** open a public issue.
 
 ---
 
 ## License
 
-See `LICENSE` for details.
+Licensed under the [Apache License, Version 2.0](LICENSE). See [`NOTICE`](NOTICE) for attribution.
