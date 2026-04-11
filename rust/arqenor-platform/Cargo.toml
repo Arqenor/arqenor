@@ -21,7 +21,7 @@ cfg-if        = "1"
 [target.'cfg(windows)'.dependencies]
 windows = { workspace = true }
 winreg  = "0.56"
-wmi     = "0.14"
+wmi     = "=0.18.1"
 
 [features]
 default = []
