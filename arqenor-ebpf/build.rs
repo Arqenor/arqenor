@@ -9,9 +9,9 @@ fn main() {
     for probe in &["execve", "memory", "persistence", "privesc", "rootkit"] {
         SkeletonBuilder::new()
             .source(probes_dir.join(format!("{probe}.bpf.c")))
-            .clang_args(["-I/usr/include/bpf", "-I/usr/include"])
+            .clang_args("-I/usr/include/bpf -I/usr/include")
             .build_and_generate(out_dir.join(format!("{probe}.skel.rs")))
-            .expect(&format!("failed to build {probe}.bpf.c"));
+            .unwrap_or_else(|e| panic!("failed to build {probe}.bpf.c: {e}"));
     }
 
     println!("cargo:rerun-if-changed=src/probes/");
