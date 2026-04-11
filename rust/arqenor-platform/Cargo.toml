@@ -28,8 +28,8 @@ default = []
 firewall-check = []
 
 [target.'cfg(target_os = "linux")'.dependencies]
-procfs   = "0.16"
-inotify  = "0.10"
+procfs   = "0.18"
+inotify  = "0.11"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 plist        = "1"
