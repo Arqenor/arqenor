@@ -41,12 +41,34 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             libbpf-dev libelf-dev zlib1g-dev \
-            clang llvm pkg-config
+            clang llvm pkg-config \
+            linux-tools-common linux-tools-generic
+          # ``bpftool`` lives in the kernel-specific package on GHA runners.
+          sudo apt-get install -y "linux-tools-$(uname -r)" || true
+      - name: Generate vmlinux.h for eBPF probes
+        run: |
+          if [ -r /sys/kernel/btf/vmlinux ] && command -v bpftool >/dev/null; then
+            sudo bpftool btf dump file /sys/kernel/btf/vmlinux format c \
+              > arqenor-ebpf/src/probes/vmlinux.h
+          else
+            echo "::warning::BTF vmlinux or bpftool missing — excluding arqenor-ebpf from clippy/test"
+            echo "SKIP_EBPF=1" >> "$GITHUB_ENV"
+          fi
       - uses: Swatinem/rust-cache@v2
       - name: cargo clippy --workspace
-        run: cargo clippy --workspace --all-targets -- -D warnings
+        run: |
+          if [ "${SKIP_EBPF:-0}" = "1" ]; then
+            cargo clippy --workspace --exclude arqenor-ebpf --all-targets -- -D warnings
+          else
+            cargo clippy --workspace --all-targets -- -D warnings
+          fi
       - name: cargo test --workspace
-        run: cargo test --workspace --all-targets
+        run: |
+          if [ "${SKIP_EBPF:-0}" = "1" ]; then
+            cargo test --workspace --exclude arqenor-ebpf --all-targets
+          else
+            cargo test --workspace --all-targets
+          fi
 
   rust-check-windows:
     name: Rust / check (Windows)
