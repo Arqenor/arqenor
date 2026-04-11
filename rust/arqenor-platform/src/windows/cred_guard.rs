@@ -30,6 +30,20 @@ fn make_alert(
     }
 }
 
+/// Join a `sysinfo::Process` command line into a single display string.
+///
+/// `sysinfo` 0.31+ returns `&[OsString]` from `Process::cmd()`, so we lossily
+/// convert each argument and join with spaces.
+#[cfg(windows)]
+fn join_cmd(process: &sysinfo::Process) -> String {
+    process
+        .cmd()
+        .iter()
+        .map(|arg| arg.to_string_lossy().into_owned())
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 // ── E1 — LSASS Handle Scan (T1003.001) ───────────────────────────────────────
 //
 // Full handle enumeration via NtQuerySystemInformation (SystemHandleInformation)
@@ -74,8 +88,9 @@ pub fn detect_cred_tools(sys: &sysinfo::System) -> Vec<Alert> {
     let mut alerts = Vec::new();
 
     for (_pid, process) in sys.processes() {
-        let name_lc = process.name().to_lowercase();
-        let cmdline = process.cmd().join(" ");
+        let name = process.name().to_string_lossy().into_owned();
+        let name_lc = name.to_lowercase();
+        let cmdline = join_cmd(process);
         let cmdline_lc = cmdline.to_lowercase();
 
         let name_hit = CRED_DUMP_NAMES
@@ -94,10 +109,7 @@ pub fn detect_cred_tools(sys: &sysinfo::System) -> Vec<Alert> {
                 .unwrap_or_else(|| "<unknown>".to_string());
 
             let reason = if name_hit {
-                format!(
-                    "Process name matches known credential dumping tool: {}",
-                    process.name()
-                )
+                format!("Process name matches known credential dumping tool: {name}")
             } else {
                 format!(
                     "Process cmdline contains credential dumping keyword: {}",
@@ -114,7 +126,7 @@ pub fn detect_cred_tools(sys: &sysinfo::System) -> Vec<Alert> {
 
             let mut meta = HashMap::new();
             meta.insert("pid".to_string(), pid_val.to_string());
-            meta.insert("process_name".to_string(), process.name().to_string());
+            meta.insert("process_name".to_string(), name);
             meta.insert("exe_path".to_string(), exe);
             meta.insert("cmdline".to_string(), cmdline);
 
@@ -152,7 +164,7 @@ pub fn detect_sam_dump(sys: &sysinfo::System) -> Vec<Alert> {
     let mut alerts = Vec::new();
 
     for (_pid, process) in sys.processes() {
-        let cmdline = process.cmd().join(" ");
+        let cmdline = join_cmd(process);
         let cmdline_lc = cmdline.to_lowercase();
 
         let hit = SAM_DUMP_PATTERNS
@@ -163,7 +175,10 @@ pub fn detect_sam_dump(sys: &sysinfo::System) -> Vec<Alert> {
             let pid_val = usize::from(*_pid) as u32;
             let mut meta = HashMap::new();
             meta.insert("pid".to_string(), pid_val.to_string());
-            meta.insert("process_name".to_string(), process.name().to_string());
+            meta.insert(
+                "process_name".to_string(),
+                process.name().to_string_lossy().into_owned(),
+            );
             meta.insert("cmdline".to_string(), cmdline.clone());
 
             alerts.push(make_alert(
@@ -250,8 +265,9 @@ pub fn detect_ransomware_signals(sys: &sysinfo::System) -> Vec<Alert> {
     let mut alerts = Vec::new();
 
     for (_pid, process) in sys.processes() {
-        let name_lc = process.name().to_lowercase();
-        let cmdline = process.cmd().join(" ");
+        let name = process.name().to_string_lossy().into_owned();
+        let name_lc = name.to_lowercase();
+        let cmdline = join_cmd(process);
         let cmdline_lc = cmdline.to_lowercase();
 
         for pattern in RANSOM_PATTERNS {
@@ -260,7 +276,7 @@ pub fn detect_ransomware_signals(sys: &sysinfo::System) -> Vec<Alert> {
                 let pid_val = usize::from(*_pid) as u32;
                 let mut meta = HashMap::new();
                 meta.insert("pid".to_string(), pid_val.to_string());
-                meta.insert("process_name".to_string(), process.name().to_string());
+                meta.insert("process_name".to_string(), name.clone());
                 meta.insert("cmdline".to_string(), cmdline.clone());
 
                 alerts.push(make_alert(

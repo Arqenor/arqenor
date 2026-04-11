@@ -68,12 +68,19 @@ fn build_process_info(p: &sysinfo::Process) -> ProcessInfo {
         .filter(|s| !s.is_empty())
         .or_else(|| proc_exe_path(pid));
 
+    let cmdline = p
+        .cmd()
+        .iter()
+        .map(|arg| arg.to_string_lossy().into_owned())
+        .collect::<Vec<_>>()
+        .join(" ");
+
     ProcessInfo {
         pid,
         ppid: p.parent().map(|x| usize::from(x) as u32).unwrap_or(0),
-        name: p.name().to_string(),
+        name: p.name().to_string_lossy().into_owned(),
         exe_path,
-        cmdline: Some(p.cmd().join(" ")),
+        cmdline: Some(cmdline),
         user: None,
         sha256: None,
         started_at: None,
@@ -100,9 +107,9 @@ fn stub_process_info(pid: u32) -> ProcessInfo {
 impl ProcessMonitor for LinuxProcessMonitor {
     async fn snapshot(&self) -> Result<Vec<ProcessInfo>, ArqenorError> {
         let mut sys = System::new_with_specifics(
-            RefreshKind::new().with_processes(ProcessRefreshKind::everything()),
+            RefreshKind::nothing().with_processes(ProcessRefreshKind::everything()),
         );
-        sys.refresh_all();
+        sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
         Ok(sys.processes().values().map(build_process_info).collect())
     }
 
@@ -119,9 +126,9 @@ impl ProcessMonitor for LinuxProcessMonitor {
     /// Returns full process info with `loaded_modules` populated from `/proc/<pid>/maps`.
     async fn enrich(&self, pid: u32) -> Result<ProcessInfo, ArqenorError> {
         let mut sys = System::new_with_specifics(
-            RefreshKind::new().with_processes(ProcessRefreshKind::everything()),
+            RefreshKind::nothing().with_processes(ProcessRefreshKind::everything()),
         );
-        sys.refresh_all();
+        sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
         let sysinfo_pid = sysinfo::Pid::from(pid as usize);
         let mut info = sys
             .process(sysinfo_pid)
@@ -137,9 +144,9 @@ impl ProcessMonitor for LinuxProcessMonitor {
 
 async fn proc_watch_loop(tx: Sender<ProcessEvent>) {
     let mut sys = System::new_with_specifics(
-        RefreshKind::new().with_processes(ProcessRefreshKind::everything()),
+        RefreshKind::nothing().with_processes(ProcessRefreshKind::everything()),
     );
-    sys.refresh_all();
+    sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
 
     // Seed the initial PID set — pre-existing processes do not generate events.
     let mut prev_pids: HashSet<u32> = sys
@@ -154,7 +161,7 @@ async fn proc_watch_loop(tx: Sender<ProcessEvent>) {
     loop {
         interval.tick().await;
 
-        sys.refresh_processes();
+        sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
 
         let current_pids: HashSet<u32> = sys
             .processes()
