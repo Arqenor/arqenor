@@ -9,6 +9,7 @@ use arqenor_core::{
 use async_trait::async_trait;
 use std::{fs, path::Path};
 
+#[derive(Default)]
 pub struct LinuxPersistenceDetector;
 
 impl LinuxPersistenceDetector {
@@ -427,7 +428,7 @@ fn detect_ld_preload(entries: &mut Vec<PersistenceEntry>) {
 
     // /etc/ld.so.preload — system-wide, applies to every process
     const PRELOAD_FILE: &str = "/etc/ld.so.preload";
-    if let Some(content) = fs::read_to_string(PRELOAD_FILE).ok() {
+    if let Ok(content) = fs::read_to_string(PRELOAD_FILE) {
         for line in content.lines() {
             let lib = line.trim();
             if lib.is_empty() || lib.starts_with('#') {

@@ -13,6 +13,7 @@ use arqenor_core::{
     traits::connection_monitor::ConnectionMonitor,
 };
 
+#[derive(Default)]
 pub struct LinuxConnectionMonitor;
 
 impl LinuxConnectionMonitor {

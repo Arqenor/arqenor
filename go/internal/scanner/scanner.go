@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"strconv"
 	"sync"
 	"time"
 
@@ -85,7 +86,7 @@ func (s *Scanner) scanHost(ctx context.Context, ip string, ports []int) HostResu
 	// TCP connect check on port 80/443/22 to determine if host is up
 	probes := []int{80, 443, 22, 3389}
 	for _, p := range probes {
-		addr := fmt.Sprintf("%s:%d", ip, p)
+		addr := net.JoinHostPort(ip, strconv.Itoa(p))
 		conn, err := net.DialTimeout("tcp", addr, s.timeout)
 		if err == nil {
 			conn.Close()
@@ -124,7 +125,7 @@ func (s *Scanner) scanPorts(ctx context.Context, ip string, ports []int) []PortR
 			defer wg.Done()
 			defer func() { <-sem }()
 
-			addr := fmt.Sprintf("%s:%d", ip, p)
+			addr := net.JoinHostPort(ip, strconv.Itoa(p))
 			conn, err := net.DialTimeout("tcp", addr, s.timeout)
 			if err != nil {
 				return

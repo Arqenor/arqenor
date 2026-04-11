@@ -297,8 +297,7 @@ fn first_suspicious_line(content: &str) -> Option<&str> {
             return false;
         }
         // Check for LD_PRELOAD or PATH pointing outside standard dirs.
-        if l.starts_with("PATH=") {
-            let rhs = &l["PATH=".len()..];
+        if let Some(rhs) = l.strip_prefix("PATH=") {
             let outside_std = !rhs.contains("/usr/") && !rhs.contains("/bin");
             if outside_std {
                 return true;
@@ -449,7 +448,7 @@ fn find_git_dirs(dir: &Path, max_depth: usize, results: &mut Vec<PathBuf>) {
 }
 
 /// Return the first suspicious line found within the first `line_limit` lines.
-fn first_suspicious_hook_line<'a>(content: &'a str, line_limit: usize) -> Option<&'a str> {
+fn first_suspicious_hook_line(content: &str, line_limit: usize) -> Option<&str> {
     content.lines().take(line_limit).find(|line| {
         let l = line.trim();
         HOOK_SUSPICIOUS_PATTERNS.iter().any(|pat| l.contains(pat))
