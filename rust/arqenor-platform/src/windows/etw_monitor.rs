@@ -19,8 +19,8 @@
 
 use std::sync::mpsc::{Receiver, SyncSender};
 
-use chrono::Utc;
 use arqenor_core::models::alert::{Alert, Severity};
+use chrono::Utc;
 use uuid::Uuid;
 
 use super::etw_consumer::EtwEvent;
@@ -28,10 +28,10 @@ use super::etw_consumer::EtwEvent;
 // ── Alert specification ───────────────────────────────────────────────────────
 
 struct AlertSpec {
-    severity:  Severity,
-    rule_id:   &'static str,
+    severity: Severity,
+    rule_id: &'static str,
     attack_id: &'static str,
-    kind:      &'static str,
+    kind: &'static str,
 }
 
 /// Apply detection rules to a single ETW event.
@@ -49,76 +49,76 @@ fn classify(event: &EtwEvent) -> Option<AlertSpec> {
         // Even a benign-looking script block is worth recording — obfuscated
         // loaders, stagers, and living-off-the-land scripts all appear here.
         ("A0C1853B", 4104) => Some(AlertSpec {
-            severity:  Severity::High,
-            rule_id:   "ETW-1001",
+            severity: Severity::High,
+            rule_id: "ETW-1001",
             attack_id: "T1059.001",
-            kind:      "PowerShell ScriptBlock Execution",
+            kind: "PowerShell ScriptBlock Execution",
         }),
 
         // ── Scheduled task created (T1053.005) ───────────────────────────────
         ("54849625", 4698) => Some(AlertSpec {
-            severity:  Severity::High,
-            rule_id:   "ETW-1002",
+            severity: Severity::High,
+            rule_id: "ETW-1002",
             attack_id: "T1053.005",
-            kind:      "Scheduled Task Created",
+            kind: "Scheduled Task Created",
         }),
 
         // ── Scheduled task modified (T1053.005) ──────────────────────────────
         ("54849625", 4702) => Some(AlertSpec {
-            severity:  Severity::Medium,
-            rule_id:   "ETW-1003",
+            severity: Severity::Medium,
+            rule_id: "ETW-1003",
             attack_id: "T1053.005",
-            kind:      "Scheduled Task Modified",
+            kind: "Scheduled Task Modified",
         }),
 
         // ── User account created (T1136) ──────────────────────────────────────
         ("54849625", 4720) => Some(AlertSpec {
-            severity:  Severity::High,
-            rule_id:   "ETW-1004",
+            severity: Severity::High,
+            rule_id: "ETW-1004",
             attack_id: "T1136",
-            kind:      "User Account Created",
+            kind: "User Account Created",
         }),
 
         // ── User added to local group (T1078) ────────────────────────────────
         ("54849625", 4732) => Some(AlertSpec {
-            severity:  Severity::High,
-            rule_id:   "ETW-1005",
+            severity: Severity::High,
+            rule_id: "ETW-1005",
             attack_id: "T1078",
-            kind:      "User Added to Local Security Group",
+            kind: "User Added to Local Security Group",
         }),
 
         // ── WMI event consumer created (T1047) ───────────────────────────────
         // Event 5861 fires when a WMI subscription is registered — a classic
         // persistence mechanism. Almost always malicious outside vendor tooling.
         ("1418EF04", 5861) => Some(AlertSpec {
-            severity:  Severity::High,
-            rule_id:   "ETW-1006",
+            severity: Severity::High,
+            rule_id: "ETW-1006",
             attack_id: "T1047",
-            kind:      "WMI Event Consumer Registered",
+            kind: "WMI Event Consumer Registered",
         }),
 
         // ── Scheduled task launched (T1053.005) ──────────────────────────────
         ("DE7B24EA", 106) => Some(AlertSpec {
-            severity:  Severity::Medium,
-            rule_id:   "ETW-1007",
+            severity: Severity::Medium,
+            rule_id: "ETW-1007",
             attack_id: "T1053.005",
-            kind:      "Scheduled Task Launched",
+            kind: "Scheduled Task Launched",
         }),
 
         // ── Kernel-Registry : modification clé Run/RunOnce (T1547.001) ───────────────
         // On ne peut pas filtrer sur le nom de clé sans TDH parsing, mais toute
         // modification de registre kernel-level mérite un log Medium.
         ("70EB4F03", 1) => Some(AlertSpec {
-            severity:  Severity::Low,
-            rule_id:   "ETW-1008",
+            severity: Severity::Low,
+            rule_id: "ETW-1008",
             attack_id: "T1112",
-            kind:      "Registry Key Created (Kernel)",
+            kind: "Registry Key Created (Kernel)",
         }),
         ("70EB4F03", 3) => Some(AlertSpec {
-            severity:  Severity::Low,
-            rule_id:   "ETW-1009",
+            severity: Severity::Low,
+            rule_id: "ETW-1009",
             attack_id: "T1112",
-            kind:      "Registry Value Set (Kernel)",
+            kind: "Registry Value Set (Kernel)",
         }),
 
         // Everything else (process start/stop, DNS, image load, network, file…)
@@ -137,17 +137,14 @@ fn build_alert(event: &EtwEvent, spec: AlertSpec) -> Alert {
     metadata.insert("etw_description".into(), event.description.to_string());
 
     Alert {
-        id:          Uuid::new_v4(),
-        severity:    spec.severity,
-        kind:        spec.kind.to_string(),
-        message:     format!(
-            "{} — PID {} (ETW {})",
-            spec.kind, event.pid, event.event_id,
-        ),
+        id: Uuid::new_v4(),
+        severity: spec.severity,
+        kind: spec.kind.to_string(),
+        message: format!("{} — PID {} (ETW {})", spec.kind, event.pid, event.event_id,),
         occurred_at: Utc::now(),
         metadata,
-        rule_id:     Some(spec.rule_id.to_string()),
-        attack_id:   Some(spec.attack_id.to_string()),
+        rule_id: Some(spec.rule_id.to_string()),
+        attack_id: Some(spec.attack_id.to_string()),
     }
 }
 

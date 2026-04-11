@@ -16,8 +16,8 @@ use uuid::Uuid;
 // ---------------------------------------------------------------------------
 
 const GREASE_VALUES: &[u16] = &[
-    0x0a0a, 0x1a1a, 0x2a2a, 0x3a3a, 0x4a4a, 0x5a5a, 0x6a6a, 0x7a7a,
-    0x8a8a, 0x9a9a, 0xaaaa, 0xbaba, 0xcaca, 0xdada, 0xeaea, 0xfafa,
+    0x0a0a, 0x1a1a, 0x2a2a, 0x3a3a, 0x4a4a, 0x5a5a, 0x6a6a, 0x7a7a, 0x8a8a, 0x9a9a, 0xaaaa, 0xbaba,
+    0xcaca, 0xdada, 0xeaea, 0xfafa,
 ];
 
 fn is_grease(val: u16) -> bool {
@@ -113,9 +113,7 @@ pub fn compute_ja4(hello: &TlsClientHello) -> Ja4Fingerprint {
         None => "00".to_string(),
     };
 
-    let prefix = format!(
-        "{proto}{version_str}{sni_flag}{cipher_count}{ext_count}{alpn_tag}"
-    );
+    let prefix = format!("{proto}{version_str}{sni_flag}{cipher_count}{ext_count}{alpn_tag}");
 
     // --- Part 2: cipher hash ----------------------------------------------
     let mut sorted_ciphers = ciphers_no_grease.clone();
@@ -200,7 +198,9 @@ impl Ja4Blocklist {
             Ja4BlocklistEntry {
                 fingerprint: "t13d1517h2".into(),
                 tool_name: "Cobalt Strike".into(),
-                description: "Cobalt Strike default HTTPS beacon (TLS 1.3, 15 ciphers, 17 extensions, h2)".into(),
+                description:
+                    "Cobalt Strike default HTTPS beacon (TLS 1.3, 15 ciphers, 17 extensions, h2)"
+                        .into(),
                 confidence: 0.85,
                 attack_id: "T1071.001".into(),
                 prefix_only: true,
@@ -208,7 +208,9 @@ impl Ja4Blocklist {
             Ja4BlocklistEntry {
                 fingerprint: "t12d1517h2".into(),
                 tool_name: "Cobalt Strike".into(),
-                description: "Cobalt Strike HTTPS beacon (TLS 1.2 variant, 15 ciphers, 17 extensions, h2)".into(),
+                description:
+                    "Cobalt Strike HTTPS beacon (TLS 1.2 variant, 15 ciphers, 17 extensions, h2)"
+                        .into(),
                 confidence: 0.80,
                 attack_id: "T1071.001".into(),
                 prefix_only: true,
@@ -216,7 +218,9 @@ impl Ja4Blocklist {
             Ja4BlocklistEntry {
                 fingerprint: "t13d1516h2".into(),
                 tool_name: "Cobalt Strike".into(),
-                description: "Cobalt Strike HTTPS beacon variant (TLS 1.3, 15 ciphers, 16 extensions, h2)".into(),
+                description:
+                    "Cobalt Strike HTTPS beacon variant (TLS 1.3, 15 ciphers, 16 extensions, h2)"
+                        .into(),
                 confidence: 0.80,
                 attack_id: "T1071.001".into(),
                 prefix_only: true,
@@ -250,7 +254,8 @@ impl Ja4Blocklist {
             Ja4BlocklistEntry {
                 fingerprint: "t12d0812h1".into(),
                 tool_name: "Metasploit Meterpreter".into(),
-                description: "Meterpreter reverse_https default (TLS 1.2, 8 ciphers, 12 extensions)".into(),
+                description:
+                    "Meterpreter reverse_https default (TLS 1.2, 8 ciphers, 12 extensions)".into(),
                 confidence: 0.80,
                 attack_id: "T1071.001".into(),
                 prefix_only: true,
@@ -327,7 +332,8 @@ impl Ja4Blocklist {
             Ja4BlocklistEntry {
                 fingerprint: "t12d0306h1".into(),
                 tool_name: "Crypto Miner".into(),
-                description: "Generic crypto miner TLS pool connection (very small cipher/ext set)".into(),
+                description: "Generic crypto miner TLS pool connection (very small cipher/ext set)"
+                    .into(),
                 confidence: 0.60,
                 attack_id: "T1496".into(),
                 prefix_only: true,
@@ -364,8 +370,7 @@ impl Ja4Blocklist {
     /// Add a custom entry to the blocklist.
     pub fn add_entry(&mut self, entry: Ja4BlocklistEntry) {
         if entry.prefix_only {
-            self.prefix_entries
-                .insert(entry.fingerprint.clone(), entry);
+            self.prefix_entries.insert(entry.fingerprint.clone(), entry);
         } else {
             self.full_entries.insert(entry.fingerprint.clone(), entry);
         }
@@ -493,7 +498,7 @@ pub fn parse_client_hello(data: &[u8]) -> Option<TlsClientHello> {
     }
     let cipher_suites_len = read_u16(data, pos)? as usize;
     pos += 2;
-    if data.len() < pos + cipher_suites_len || cipher_suites_len % 2 != 0 {
+    if data.len() < pos + cipher_suites_len || !cipher_suites_len.is_multiple_of(2) {
         return None;
     }
     let mut cipher_suites = Vec::with_capacity(cipher_suites_len / 2);
@@ -593,11 +598,7 @@ fn read_u24(data: &[u8], pos: usize) -> Option<u32> {
     if pos + 3 > data.len() {
         return None;
     }
-    Some(
-        (data[pos] as u32) << 16
-            | (data[pos + 1] as u32) << 8
-            | data[pos + 2] as u32,
-    )
+    Some((data[pos] as u32) << 16 | (data[pos + 1] as u32) << 8 | data[pos + 2] as u32)
 }
 
 fn parse_sni(data: &[u8]) -> Option<String> {
@@ -680,7 +681,7 @@ fn parse_supported_versions(data: &[u8]) -> Option<u16> {
         if is_grease(v) {
             continue;
         }
-        if best.map_or(true, |b| v > b) {
+        if best.is_none_or(|b| v > b) {
             best = Some(v);
         }
     }
@@ -701,8 +702,7 @@ mod tests {
             tls_version: 0x0304, // TLS 1.3
             sni: Some("example.com".into()),
             cipher_suites: vec![
-                0x1301, 0x1302, 0x1303, 0xc02c, 0xc02b,
-                0xc030, 0xc02f, 0xcca9, 0xcca8, 0xc013,
+                0x1301, 0x1302, 0x1303, 0xc02c, 0xc02b, 0xc030, 0xc02f, 0xcca9, 0xcca8, 0xc013,
                 0xc014, 0x009c, 0x009d, 0x002f, 0x0035,
             ],
             extensions: vec![
@@ -856,10 +856,7 @@ mod tests {
                 "Cobalt Strike variant '{}' should be detected",
                 ja4
             );
-            assert_eq!(
-                result.expect("checked above").tool_name,
-                "Cobalt Strike"
-            );
+            assert_eq!(result.expect("checked above").tool_name, "Cobalt Strike");
         }
     }
 
@@ -951,7 +948,7 @@ mod tests {
         ch_body.extend_from_slice(&[0x13, 0x01]); // TLS_AES_128_GCM_SHA256
         ch_body.extend_from_slice(&[0xc0, 0x2f]); // TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256
         ch_body.extend_from_slice(&[0x00, 0x2f]); // TLS_RSA_WITH_AES_128_CBC_SHA
-        // compression_methods: 1 byte (null)
+                                                  // compression_methods: 1 byte (null)
         ch_body.push(0x01);
         ch_body.push(0x00);
 

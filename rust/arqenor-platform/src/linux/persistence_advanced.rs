@@ -78,7 +78,9 @@ pub fn detect_ssh_authorized_keys() -> Vec<PersistenceEntry> {
             continue;
         }
 
-        let ak_path = PathBuf::from(&home_dir).join(".ssh").join("authorized_keys");
+        let ak_path = PathBuf::from(&home_dir)
+            .join(".ssh")
+            .join("authorized_keys");
         if !ak_path.exists() {
             continue;
         }
@@ -130,11 +132,11 @@ pub fn detect_ssh_authorized_keys() -> Vec<PersistenceEntry> {
             };
 
             entries.push(PersistenceEntry {
-                kind:     PersistenceKind::SshAuthorizedKey,
+                kind: PersistenceKind::SshAuthorizedKey,
                 name,
-                command:  fingerprint,
+                command: fingerprint,
                 location: location.clone(),
-                is_new:   false,
+                is_new: false,
             });
         }
     }
@@ -242,11 +244,11 @@ pub fn detect_pam_modules() -> Vec<PersistenceEntry> {
             };
 
             entries.push(PersistenceEntry {
-                kind:     PersistenceKind::PamModule,
-                name:     module_name,
+                kind: PersistenceKind::PamModule,
+                name: module_name,
                 command,
                 location: location.clone(),
-                is_new:   false,
+                is_new: false,
             });
         }
     }
@@ -269,11 +271,7 @@ const USER_PROFILE_FILES: &[&str] = &[
 ];
 
 /// System-wide profile files to check unconditionally.
-const SYSTEM_PROFILE_FILES: &[&str] = &[
-    "/etc/profile",
-    "/etc/bash.bashrc",
-    "/etc/environment",
-];
+const SYSTEM_PROFILE_FILES: &[&str] = &["/etc/profile", "/etc/bash.bashrc", "/etc/environment"];
 
 /// Suspicious patterns that may indicate malicious injection in a shell profile.
 const SUSPICIOUS_PATTERNS: &[&str] = &[
@@ -306,9 +304,7 @@ fn first_suspicious_line(content: &str) -> Option<&str> {
                 return true;
             }
         }
-        SUSPICIOUS_PATTERNS
-            .iter()
-            .any(|pat| l.contains(pat))
+        SUSPICIOUS_PATTERNS.iter().any(|pat| l.contains(pat))
     })
 }
 
@@ -348,11 +344,11 @@ pub fn detect_shell_profiles() -> Vec<PersistenceEntry> {
             };
 
             entries.push(PersistenceEntry {
-                kind:     PersistenceKind::ShellProfile,
-                name:     format!("profile: {}/{}", username, filename),
+                kind: PersistenceKind::ShellProfile,
+                name: format!("profile: {}/{}", username, filename),
                 command,
                 location: path.to_string_lossy().into_owned(),
-                is_new:   false,
+                is_new: false,
             });
         }
     }
@@ -379,11 +375,11 @@ pub fn detect_shell_profiles() -> Vec<PersistenceEntry> {
         };
 
         entries.push(PersistenceEntry {
-            kind:     PersistenceKind::ShellProfile,
-            name:     format!("system: {}", sys_path),
+            kind: PersistenceKind::ShellProfile,
+            name: format!("system: {}", sys_path),
             command,
             location: sys_path.to_owned(),
-            is_new:   false,
+            is_new: false,
         });
     }
 
@@ -532,11 +528,11 @@ pub fn detect_git_hooks() -> Vec<PersistenceEntry> {
                 .unwrap_or_else(|| "executable hook".to_owned());
 
             entries.push(PersistenceEntry {
-                kind:     PersistenceKind::GitHook,
-                name:     format!("{} @ {}", hook_name, repo_root),
+                kind: PersistenceKind::GitHook,
+                name: format!("{} @ {}", hook_name, repo_root),
                 command,
                 location: hook_path.to_string_lossy().into_owned(),
-                is_new:   false,
+                is_new: false,
             });
         }
     }

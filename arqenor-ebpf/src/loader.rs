@@ -15,14 +15,13 @@
 
 #[cfg(target_os = "linux")]
 pub mod linux {
-    use std::sync::Arc;
     use anyhow::{Context, Result};
+    use std::sync::Arc;
     use tokio::sync::mpsc;
 
     use crate::events::{
-        EbpfEvent, EbpfEventKind,
-        ExecveEvent, MmapEvent, PtraceEvent,
-        CredsEvent, ModuleEvent, FileWriteEvent,
+        CredsEvent, EbpfEvent, EbpfEventKind, ExecveEvent, FileWriteEvent, MmapEvent, ModuleEvent,
+        PtraceEvent,
     };
 
     // ── Generated skeletons (produced by build.rs via libbpf-cargo) ──────────
@@ -90,10 +89,7 @@ pub mod linux {
             // Repeat for memory, persistence, privesc, rootkit.
             // ─────────────────────────────────────────────────────────────────
 
-            tracing::info!(
-                probes = links.len(),
-                "eBPF agent started — probes attached"
-            );
+            tracing::info!(probes = links.len(), "eBPF agent started — probes attached");
 
             Ok((Self { _links: links }, rx))
         }
@@ -113,13 +109,13 @@ pub mod linux {
     /// Construct an [`EbpfEvent`] from a raw [`ExecveEvent`] ring-buffer sample.
     pub fn execve_to_event(raw: &ExecveEvent) -> EbpfEvent {
         EbpfEvent {
-            kind:         EbpfEventKind::ProcessExec,
-            pid:          raw.pid,
-            ppid:         raw.ppid,
-            uid:          raw.uid,
-            comm:         cstr_to_string(&raw.comm),
-            filename:     Some(cstr_to_string(&raw.filename)),
-            extra:        Some(cstr_to_string(&raw.argv0)),
+            kind: EbpfEventKind::ProcessExec,
+            pid: raw.pid,
+            ppid: raw.ppid,
+            uid: raw.uid,
+            comm: cstr_to_string(&raw.comm),
+            filename: Some(cstr_to_string(&raw.filename)),
+            extra: Some(cstr_to_string(&raw.argv0)),
             timestamp_ns: raw.ts_ns,
         }
     }
@@ -127,13 +123,13 @@ pub mod linux {
     /// Construct an [`EbpfEvent`] from a raw [`MmapEvent`] ring-buffer sample.
     pub fn mmap_to_event(raw: &MmapEvent) -> EbpfEvent {
         EbpfEvent {
-            kind:         EbpfEventKind::MemoryRwxMap,
-            pid:          raw.pid,
-            ppid:         raw.ppid,
-            uid:          raw.uid,
-            comm:         cstr_to_string(&raw.comm),
-            filename:     None,
-            extra:        Some(format!(
+            kind: EbpfEventKind::MemoryRwxMap,
+            pid: raw.pid,
+            ppid: raw.ppid,
+            uid: raw.uid,
+            comm: cstr_to_string(&raw.comm),
+            filename: None,
+            extra: Some(format!(
                 "addr=0x{:x} len={} prot=0x{:x} flags=0x{:x}",
                 raw.addr, raw.len, raw.prot, raw.flags
             )),
@@ -144,13 +140,13 @@ pub mod linux {
     /// Construct an [`EbpfEvent`] from a raw [`PtraceEvent`] ring-buffer sample.
     pub fn ptrace_to_event(raw: &PtraceEvent) -> EbpfEvent {
         EbpfEvent {
-            kind:         EbpfEventKind::PtraceAttach,
-            pid:          raw.pid,
-            ppid:         raw.ppid,
-            uid:          raw.uid,
-            comm:         cstr_to_string(&raw.comm),
-            filename:     None,
-            extra:        Some(format!(
+            kind: EbpfEventKind::PtraceAttach,
+            pid: raw.pid,
+            ppid: raw.ppid,
+            uid: raw.uid,
+            comm: cstr_to_string(&raw.comm),
+            filename: None,
+            extra: Some(format!(
                 "request={} target_pid={}",
                 raw.request, raw.target_pid
             )),
@@ -161,16 +157,13 @@ pub mod linux {
     /// Construct an [`EbpfEvent`] from a raw [`CredsEvent`] ring-buffer sample.
     pub fn creds_to_event(raw: &CredsEvent) -> EbpfEvent {
         EbpfEvent {
-            kind:         EbpfEventKind::CommitCredsEscalation,
-            pid:          raw.pid,
-            ppid:         raw.ppid,
-            uid:          raw.old_uid,
-            comm:         cstr_to_string(&raw.comm),
-            filename:     None,
-            extra:        Some(format!(
-                "old_uid={} new_uid={}",
-                raw.old_uid, raw.new_uid
-            )),
+            kind: EbpfEventKind::CommitCredsEscalation,
+            pid: raw.pid,
+            ppid: raw.ppid,
+            uid: raw.old_uid,
+            comm: cstr_to_string(&raw.comm),
+            filename: None,
+            extra: Some(format!("old_uid={} new_uid={}", raw.old_uid, raw.new_uid)),
             timestamp_ns: raw.ts_ns,
         }
     }
@@ -178,13 +171,13 @@ pub mod linux {
     /// Construct an [`EbpfEvent`] from a raw [`ModuleEvent`] ring-buffer sample.
     pub fn module_to_event(raw: &ModuleEvent) -> EbpfEvent {
         EbpfEvent {
-            kind:         EbpfEventKind::KernelModuleLoad,
-            pid:          raw.pid,
-            ppid:         0, // not captured in this probe
-            uid:          0, // not captured in this probe
-            comm:         cstr_to_string(&raw.comm),
-            filename:     Some(cstr_to_string(&raw.name)),
-            extra:        None,
+            kind: EbpfEventKind::KernelModuleLoad,
+            pid: raw.pid,
+            ppid: 0, // not captured in this probe
+            uid: 0,  // not captured in this probe
+            comm: cstr_to_string(&raw.comm),
+            filename: Some(cstr_to_string(&raw.name)),
+            extra: None,
             timestamp_ns: raw.ts_ns,
         }
     }
@@ -205,12 +198,12 @@ pub mod linux {
 
         EbpfEvent {
             kind,
-            pid:          raw.pid,
-            ppid:         raw.ppid,
-            uid:          raw.uid,
-            comm:         cstr_to_string(&raw.comm),
-            filename:     Some(filename),
-            extra:        None,
+            pid: raw.pid,
+            ppid: raw.ppid,
+            uid: raw.uid,
+            comm: cstr_to_string(&raw.comm),
+            filename: Some(filename),
+            extra: None,
             timestamp_ns: raw.ts_ns,
         }
     }

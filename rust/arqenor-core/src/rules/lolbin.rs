@@ -5,7 +5,8 @@ pub fn built_in_rules() -> Vec<DetectionRule> {
     vec![
         // SENT-1001: PowerShell Encoded Command T1059.001
         DetectionRule {
-            id: "SENT-1001", attack_id: "T1059.001",
+            id: "SENT-1001",
+            attack_id: "T1059.001",
             severity: Severity::High,
             title: "PowerShell Encoded Command",
             condition: RuleCondition::ProcessCreate {
@@ -21,7 +22,8 @@ pub fn built_in_rules() -> Vec<DetectionRule> {
         },
         // SENT-1002: PowerShell Download Cradle T1059.001
         DetectionRule {
-            id: "SENT-1002", attack_id: "T1059.001",
+            id: "SENT-1002",
+            attack_id: "T1059.001",
             severity: Severity::High,
             title: "PowerShell Download Cradle",
             condition: RuleCondition::ProcessCreate {
@@ -39,7 +41,8 @@ pub fn built_in_rules() -> Vec<DetectionRule> {
         },
         // SENT-1003: Certutil Decode/Download T1140
         DetectionRule {
-            id: "SENT-1003", attack_id: "T1140",
+            id: "SENT-1003",
+            attack_id: "T1140",
             severity: Severity::High,
             title: "Certutil Decode or Download",
             condition: RuleCondition::ProcessCreate {
@@ -55,7 +58,8 @@ pub fn built_in_rules() -> Vec<DetectionRule> {
         },
         // SENT-1004: MSHTA Remote Execution T1218.005
         DetectionRule {
-            id: "SENT-1004", attack_id: "T1218.005",
+            id: "SENT-1004",
+            attack_id: "T1218.005",
             severity: Severity::High,
             title: "MSHTA Remote Execution",
             condition: RuleCondition::ProcessCreate {
@@ -72,7 +76,8 @@ pub fn built_in_rules() -> Vec<DetectionRule> {
         },
         // SENT-1005: Regsvr32 COM Scriptlet T1218.010
         DetectionRule {
-            id: "SENT-1005", attack_id: "T1218.010",
+            id: "SENT-1005",
+            attack_id: "T1218.010",
             severity: Severity::High,
             title: "Regsvr32 COM Scriptlet",
             condition: RuleCondition::ProcessCreate {
@@ -88,22 +93,21 @@ pub fn built_in_rules() -> Vec<DetectionRule> {
         },
         // SENT-1006: Rundll32 Remote T1218.011
         DetectionRule {
-            id: "SENT-1006", attack_id: "T1218.011",
+            id: "SENT-1006",
+            attack_id: "T1218.011",
             severity: Severity::High,
             title: "Rundll32 Remote Execution",
             condition: RuleCondition::ProcessCreate {
                 image: Some(Pattern::new("*\\rundll32.exe")),
                 cmdline: None,
-                cmdline_any: Some(vec![
-                    Pattern::new("*http://*"),
-                    Pattern::new("*https://*"),
-                ]),
+                cmdline_any: Some(vec![Pattern::new("*http://*"), Pattern::new("*https://*")]),
                 parent: None,
             },
         },
         // SENT-1007: BITSAdmin Transfer T1197
         DetectionRule {
-            id: "SENT-1007", attack_id: "T1197",
+            id: "SENT-1007",
+            attack_id: "T1197",
             severity: Severity::Medium,
             title: "BITSAdmin File Transfer",
             condition: RuleCondition::ProcessCreate {
@@ -115,7 +119,8 @@ pub fn built_in_rules() -> Vec<DetectionRule> {
         },
         // SENT-1008: WMI Process Spawn T1047
         DetectionRule {
-            id: "SENT-1008", attack_id: "T1047",
+            id: "SENT-1008",
+            attack_id: "T1047",
             severity: Severity::High,
             title: "WMI Spawning Shell",
             condition: RuleCondition::ProcessCreate {
@@ -127,7 +132,8 @@ pub fn built_in_rules() -> Vec<DetectionRule> {
         },
         // SENT-1009: Office Spawning Shell T1204.002
         DetectionRule {
-            id: "SENT-1009", attack_id: "T1204.002",
+            id: "SENT-1009",
+            attack_id: "T1204.002",
             severity: Severity::Critical,
             title: "Office Application Spawning Shell",
             condition: RuleCondition::ProcessCreate {
@@ -139,7 +145,8 @@ pub fn built_in_rules() -> Vec<DetectionRule> {
         },
         // SENT-1009b: Office parent detection
         DetectionRule {
-            id: "SENT-1009b", attack_id: "T1204.002",
+            id: "SENT-1009b",
+            attack_id: "T1204.002",
             severity: Severity::Critical,
             title: "Office Spawning PowerShell",
             condition: RuleCondition::ProcessCreate {
@@ -151,22 +158,21 @@ pub fn built_in_rules() -> Vec<DetectionRule> {
         },
         // SENT-1010: Schtasks Remote Create T1053.005
         DetectionRule {
-            id: "SENT-1010", attack_id: "T1053.005",
+            id: "SENT-1010",
+            attack_id: "T1053.005",
             severity: Severity::High,
             title: "Schtasks Remote Scheduled Task",
             condition: RuleCondition::ProcessCreate {
                 image: Some(Pattern::new("*\\schtasks.exe")),
-                cmdline: Some(vec![
-                    Pattern::new("*/create*"),
-                    Pattern::new("*/s \\\\*"),
-                ]),
+                cmdline: Some(vec![Pattern::new("*/create*"), Pattern::new("*/s \\\\*")]),
                 cmdline_any: None,
                 parent: None,
             },
         },
         // SENT-1012: Shadow Copy Deletion T1490
         DetectionRule {
-            id: "SENT-1012", attack_id: "T1490",
+            id: "SENT-1012",
+            attack_id: "T1490",
             severity: Severity::Critical,
             title: "Shadow Copy Deletion (Pre-Ransomware)",
             condition: RuleCondition::ProcessCreate {
@@ -178,7 +184,8 @@ pub fn built_in_rules() -> Vec<DetectionRule> {
         },
         // SENT-1012b: WMI shadow delete
         DetectionRule {
-            id: "SENT-1012b", attack_id: "T1490",
+            id: "SENT-1012b",
+            attack_id: "T1490",
             severity: Severity::Critical,
             title: "WMI Shadow Copy Deletion (Pre-Ransomware)",
             condition: RuleCondition::ProcessCreate {
@@ -190,7 +197,8 @@ pub fn built_in_rules() -> Vec<DetectionRule> {
         },
         // SENT-1013: WMIC Process Create T1047
         DetectionRule {
-            id: "SENT-1013", attack_id: "T1047",
+            id: "SENT-1013",
+            attack_id: "T1047",
             severity: Severity::High,
             title: "WMIC Process Creation",
             condition: RuleCondition::ProcessCreate {
@@ -202,7 +210,8 @@ pub fn built_in_rules() -> Vec<DetectionRule> {
         },
         // SENT-1014: InstallUtil Execution T1218.004
         DetectionRule {
-            id: "SENT-1014", attack_id: "T1218.004",
+            id: "SENT-1014",
+            attack_id: "T1218.004",
             severity: Severity::High,
             title: "InstallUtil Execution",
             condition: RuleCondition::ProcessCreate {
@@ -218,7 +227,8 @@ pub fn built_in_rules() -> Vec<DetectionRule> {
         },
         // SENT-1015: Known Malware Process Names
         DetectionRule {
-            id: "SENT-1015", attack_id: "T1059",
+            id: "SENT-1015",
+            attack_id: "T1059",
             severity: Severity::Critical,
             title: "Known Malware / Credential Tool Process Name",
             condition: RuleCondition::ProcessName {

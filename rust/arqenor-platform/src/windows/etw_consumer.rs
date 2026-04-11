@@ -51,49 +51,67 @@ use arqenor_core::error::ArqenorError;
 
 const SESSION_NAME: &str = "ARQENOR-ETW-v1";
 
-const WNODE_FLAG_TRACED_GUID: u32          = 0x0002_0000;
-const EVENT_TRACE_REAL_TIME_MODE: u32        = 0x0000_0100;
-const PROCESS_TRACE_MODE_REAL_TIME: u32      = 0x0000_0100;
-const PROCESS_TRACE_MODE_EVENT_RECORD: u32   = 0x1000_0000;
-const ENABLE_CODE: u32  = 1; // EVENT_CONTROL_CODE_ENABLE_PROVIDER
+const WNODE_FLAG_TRACED_GUID: u32 = 0x0002_0000;
+const EVENT_TRACE_REAL_TIME_MODE: u32 = 0x0000_0100;
+const PROCESS_TRACE_MODE_REAL_TIME: u32 = 0x0000_0100;
+const PROCESS_TRACE_MODE_EVENT_RECORD: u32 = 0x1000_0000;
+const ENABLE_CODE: u32 = 1; // EVENT_CONTROL_CODE_ENABLE_PROVIDER
 const TRACE_LEVEL_ALL: u8 = 5; // TRACE_LEVEL_VERBOSE
 
 // ── Provider GUIDs ────────────────────────────────────────────────────────────
 
 const PROVIDER_KERNEL_PROCESS: GUID = GUID {
-    data1: 0x22FB2CD6, data2: 0x0E7B, data3: 0x422B,
+    data1: 0x22FB2CD6,
+    data2: 0x0E7B,
+    data3: 0x422B,
     data4: [0xA0, 0xC7, 0x2F, 0xAD, 0x1F, 0xD0, 0xE7, 0x16],
 };
 const PROVIDER_POWERSHELL: GUID = GUID {
-    data1: 0xA0C1853B, data2: 0x5C40, data3: 0x4B15,
+    data1: 0xA0C1853B,
+    data2: 0x5C40,
+    data3: 0x4B15,
     data4: [0x87, 0x66, 0x3C, 0xF1, 0xC5, 0x8F, 0x98, 0x5A],
 };
 const PROVIDER_SECURITY: GUID = GUID {
-    data1: 0x54849625, data2: 0x5478, data3: 0x4994,
+    data1: 0x54849625,
+    data2: 0x5478,
+    data3: 0x4994,
     data4: [0xA5, 0xBA, 0x3E, 0x3B, 0x03, 0x28, 0xC3, 0x0D],
 };
 const PROVIDER_DNS: GUID = GUID {
-    data1: 0x1C95126E, data2: 0x7EEA, data3: 0x49A9,
+    data1: 0x1C95126E,
+    data2: 0x7EEA,
+    data3: 0x49A9,
     data4: [0xA3, 0xFE, 0xA3, 0x78, 0xB0, 0x3D, 0xDB, 0x4D],
 };
 const PROVIDER_WMI: GUID = GUID {
-    data1: 0x1418EF04, data2: 0xB0B4, data3: 0x4623,
+    data1: 0x1418EF04,
+    data2: 0xB0B4,
+    data3: 0x4623,
     data4: [0xBF, 0x7E, 0xD7, 0x4A, 0xB4, 0x7B, 0xBD, 0xAA],
 };
 const PROVIDER_TASKSCHEDULER: GUID = GUID {
-    data1: 0xDE7B24EA, data2: 0x73C8, data3: 0x4A09,
+    data1: 0xDE7B24EA,
+    data2: 0x73C8,
+    data3: 0x4A09,
     data4: [0x98, 0x5D, 0x5B, 0xDA, 0xDC, 0xFA, 0x90, 0x17],
 };
 const PROVIDER_KERNEL_NETWORK: GUID = GUID {
-    data1: 0x7DD42A49, data2: 0x5329, data3: 0x4832,
+    data1: 0x7DD42A49,
+    data2: 0x5329,
+    data3: 0x4832,
     data4: [0x8D, 0xFD, 0x43, 0xD9, 0x79, 0x15, 0x3A, 0x88],
 };
 const PROVIDER_KERNEL_FILE: GUID = GUID {
-    data1: 0xEDD08927, data2: 0x9CC4, data3: 0x4E65,
+    data1: 0xEDD08927,
+    data2: 0x9CC4,
+    data3: 0x4E65,
     data4: [0xB9, 0x70, 0xC2, 0x56, 0x0F, 0xB5, 0xC2, 0x89],
 };
 const PROVIDER_KERNEL_REGISTRY: GUID = GUID {
-    data1: 0x70EB4F03, data2: 0xC1DE, data3: 0x4F73,
+    data1: 0x70EB4F03,
+    data2: 0xC1DE,
+    data3: 0x4F73,
     data4: [0xA0, 0x51, 0x33, 0xD1, 0x3D, 0x54, 0x13, 0xBD],
 };
 
@@ -132,9 +150,9 @@ pub struct EtwEvent {
     pub tid: u32,
     /// Windows FILETIME (100-ns intervals since 1601-01-01 UTC).
     pub timestamp: i64,
-    pub level:   u8,
-    pub opcode:  u8,
-    pub task:    u16,
+    pub level: u8,
+    pub opcode: u8,
+    pub task: u16,
     pub keyword: u64,
     /// Raw user-data bytes; schema depends on (provider, event_id).
     pub user_data: Vec<u8>,
@@ -151,22 +169,22 @@ fn describe_event(guid_str: &str, event_id: u16) -> &'static str {
     // guid_str format: `{22FB2CD6-…}` → data1 occupies chars [1..9]
     let tag = guid_str.get(1..9).unwrap_or("");
     match (tag, event_id) {
-        ("22FB2CD6", 1)    => "Kernel: process start",
-        ("22FB2CD6", 2)    => "Kernel: process stop",
-        ("22FB2CD6", 5)    => "Kernel: image load",
+        ("22FB2CD6", 1) => "Kernel: process start",
+        ("22FB2CD6", 2) => "Kernel: process stop",
+        ("22FB2CD6", 5) => "Kernel: image load",
         ("A0C1853B", 4104) => "PowerShell: script-block execution [T1059.001]",
         ("54849625", 4688) => "Security: new process created [T1059]",
         ("54849625", 4698) => "Security: scheduled task created [T1053.005]",
         ("1C95126E", 3006) => "DNS: query sent [T1071.004]",
         ("1418EF04", 5861) => "WMI: activity/query [T1047]",
-        ("DE7B24EA", 106)  => "TaskScheduler: task launched [T1053.005]",
-        ("7DD42A49", 12)   => "Kernel-Network: TCP connect [T1071]",
-        ("7DD42A49", 15)   => "Kernel-Network: UDP send [T1071]",
-        ("EDD08927", 12)   => "Kernel-File: file create [T1005]",
-        ("EDD08927", 14)   => "Kernel-File: file write [T1565]",
-        ("70EB4F03", 1)    => "Kernel-Registry: key create [T1112]",
-        ("70EB4F03", 3)    => "Kernel-Registry: value set [T1112]",
-        _                  => "ETW event",
+        ("DE7B24EA", 106) => "TaskScheduler: task launched [T1053.005]",
+        ("7DD42A49", 12) => "Kernel-Network: TCP connect [T1071]",
+        ("7DD42A49", 15) => "Kernel-Network: UDP send [T1071]",
+        ("EDD08927", 12) => "Kernel-File: file create [T1005]",
+        ("EDD08927", 14) => "Kernel-File: file write [T1565]",
+        ("70EB4F03", 1) => "Kernel-Registry: key create [T1112]",
+        ("70EB4F03", 3) => "Kernel-Registry: value set [T1112]",
+        _ => "ETW event",
     }
 }
 
@@ -182,41 +200,45 @@ unsafe extern "system" fn event_record_callback(record: *mut EVENT_RECORD) {
     let g = &r.EventHeader.ProviderId;
     let provider_guid = format!(
         "{{{:08X}-{:04X}-{:04X}-{:02X}{:02X}-{:02X}{:02X}{:02X}{:02X}{:02X}{:02X}}}",
-        g.data1, g.data2, g.data3,
-        g.data4[0], g.data4[1],
-        g.data4[2], g.data4[3], g.data4[4],
-        g.data4[5], g.data4[6], g.data4[7],
+        g.data1,
+        g.data2,
+        g.data3,
+        g.data4[0],
+        g.data4[1],
+        g.data4[2],
+        g.data4[3],
+        g.data4[4],
+        g.data4[5],
+        g.data4[6],
+        g.data4[7],
     );
 
     let user_data = if r.UserDataLength > 0 && !r.UserData.is_null() {
         // SAFETY: ETW guarantees UserData points to UserDataLength valid bytes.
         unsafe {
-            std::slice::from_raw_parts(
-                r.UserData.cast::<u8>(),
-                r.UserDataLength as usize,
-            )
-            .to_vec()
+            std::slice::from_raw_parts(r.UserData.cast::<u8>(), r.UserDataLength as usize).to_vec()
         }
     } else {
         Vec::new()
     };
 
-    let event_id    = r.EventHeader.EventDescriptor.Id;
+    let event_id = r.EventHeader.EventDescriptor.Id;
     let description = describe_event(&provider_guid, event_id);
 
     // Parse TDH properties while `record` is still valid (inside the callback).
-    let properties = super::etw_tdh::parse_event_properties(record as *const _);
+    // SAFETY: `record` is owned by the ETW runtime for the duration of this callback.
+    let properties = unsafe { super::etw_tdh::parse_event_properties(record as *const _) };
 
     let ev = EtwEvent {
         provider_guid,
         event_id,
-        pid:       r.EventHeader.ProcessId,
-        tid:       r.EventHeader.ThreadId,
+        pid: r.EventHeader.ProcessId,
+        tid: r.EventHeader.ThreadId,
         timestamp: r.EventHeader.TimeStamp,
-        level:     r.EventHeader.EventDescriptor.Level,
-        opcode:    r.EventHeader.EventDescriptor.Opcode,
-        task:      r.EventHeader.EventDescriptor.Task,
-        keyword:   r.EventHeader.EventDescriptor.Keyword,
+        level: r.EventHeader.EventDescriptor.Level,
+        opcode: r.EventHeader.EventDescriptor.Opcode,
+        task: r.EventHeader.EventDescriptor.Task,
+        keyword: r.EventHeader.EventDescriptor.Keyword,
         user_data,
         description,
         properties,
@@ -240,8 +262,8 @@ fn to_wide(s: &str) -> Vec<u16> {
 /// `ControlTraceW` to find it by name when the handle is 0.
 fn make_props(session_name_w: &[u16]) -> Vec<u8> {
     let struct_size = mem::size_of::<EVENT_TRACE_PROPERTIES>();
-    let name_bytes  = session_name_w.len() * mem::size_of::<u16>();
-    let total       = struct_size + name_bytes;
+    let name_bytes = mem::size_of_val(session_name_w);
+    let total = struct_size + name_bytes;
 
     let mut buf = vec![0u8; total];
 
@@ -250,8 +272,8 @@ fn make_props(session_name_w: &[u16]) -> Vec<u8> {
     unsafe {
         let p = buf.as_mut_ptr() as *mut EVENT_TRACE_PROPERTIES;
         (*p).Wnode.BufferSize = total as u32;
-        (*p).Wnode.Flags      = WNODE_FLAG_TRACED_GUID;
-        (*p).LogFileMode      = EVENT_TRACE_REAL_TIME_MODE;
+        (*p).Wnode.Flags = WNODE_FLAG_TRACED_GUID;
+        (*p).LogFileMode = EVENT_TRACE_REAL_TIME_MODE;
         (*p).LoggerNameOffset = struct_size as u32;
 
         std::ptr::copy_nonoverlapping(
@@ -280,7 +302,7 @@ fn make_props(session_name_w: &[u16]) -> Vec<u8> {
 /// ```
 pub struct EtwConsumer {
     session_handle: CONTROLTRACE_HANDLE,
-    trace_handle:   Option<PROCESSTRACE_HANDLE>,
+    trace_handle: Option<PROCESSTRACE_HANDLE>,
     session_name_w: Vec<u16>,
 }
 
@@ -313,7 +335,9 @@ impl EtwConsumer {
         if let Err(e) = start_result {
             if e.code() == ERROR_ALREADY_EXISTS.to_hresult() {
                 // A stale session from a previous crash — stop it and retry.
-                tracing::debug!("ETW session '{SESSION_NAME}' already exists; stopping stale session");
+                tracing::debug!(
+                    "ETW session '{SESSION_NAME}' already exists; stopping stale session"
+                );
                 let mut stop_props = make_props(&session_name_w);
                 let _ = unsafe {
                     ControlTraceW(
@@ -355,10 +379,7 @@ impl EtwConsumer {
             } {
                 // Warn but continue — some providers (e.g. Security-Auditing)
                 // require elevated privileges that may not always be present.
-                tracing::warn!(
-                    "EnableTraceEx2 failed for provider {:08X}: {e}",
-                    guid.data1,
-                );
+                tracing::warn!("EnableTraceEx2 failed for provider {:08X}: {e}", guid.data1,);
             }
         }
 

@@ -34,7 +34,9 @@ async fn main() -> Result<()> {
     let host_svc = server::host_analyzer::HostAnalyzerService::new();
 
     tonic::transport::Server::builder()
-        .add_service(host::host_analyzer_server::HostAnalyzerServer::new(host_svc))
+        .add_service(host::host_analyzer_server::HostAnalyzerServer::new(
+            host_svc,
+        ))
         .serve(addr)
         .await?;
 

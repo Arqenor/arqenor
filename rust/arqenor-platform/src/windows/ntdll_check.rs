@@ -12,11 +12,11 @@
 //! 5. Classify any differences by hook type.
 
 use arqenor_core::error::ArqenorError;
+use windows::core::w;
 use windows::Win32::Foundation::CloseHandle;
 use windows::Win32::System::Diagnostics::Debug::ReadProcessMemory;
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::Threading::*;
-use windows::core::w;
 
 /// Number of bytes to compare at the start of each function.
 const COMPARE_BYTES: usize = 16;
@@ -41,10 +41,10 @@ const CRITICAL_FUNCTIONS: &[&str] = &[
 #[derive(Debug, Clone)]
 pub struct NtdllHookResult {
     pub function_name: String,
-    pub is_hooked:     bool,
-    pub disk_bytes:    Vec<u8>,
-    pub memory_bytes:  Vec<u8>,
-    pub hook_type:     Option<HookType>,
+    pub is_hooked: bool,
+    pub disk_bytes: Vec<u8>,
+    pub memory_bytes: Vec<u8>,
+    pub hook_type: Option<HookType>,
 }
 
 /// Classification of the detected hook.
@@ -217,7 +217,9 @@ pub fn check_ntdll_hooks_remote(pid: u32) -> Result<Vec<NtdllHookResult>, Arqeno
     }
 
     // SAFETY: Closing a valid handle we opened above.
-    unsafe { let _ = CloseHandle(handle); }
+    unsafe {
+        let _ = CloseHandle(handle);
+    }
 
     Ok(results)
 }
@@ -284,7 +286,7 @@ fn parse_exports(pe: &[u8]) -> Option<Vec<ExportEntry>> {
         }
         let name_rva = read_u32(pe, name_rva_off);
         let name_file_off = match rva_to_file_offset_raw(pe, pe_off, name_rva) {
-            Some(o) => o as usize,
+            Some(o) => o,
             None => continue,
         };
 
@@ -371,7 +373,12 @@ fn classify_hook(bytes: &[u8]) -> HookType {
     }
 
     // MOV RAX, imm64; JMP RAX (48 B8 xx*8 FF E0).
-    if bytes.len() >= 12 && bytes[0] == 0x48 && bytes[1] == 0xB8 && bytes[10] == 0xFF && bytes[11] == 0xE0 {
+    if bytes.len() >= 12
+        && bytes[0] == 0x48
+        && bytes[1] == 0xB8
+        && bytes[10] == 0xFF
+        && bytes[11] == 0xE0
+    {
         return HookType::Trampoline;
     }
 

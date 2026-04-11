@@ -27,20 +27,20 @@ pub enum IocType {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IocEntry {
     pub ioc_type: IocType,
-    pub value:    String,
-    pub source:   String,
-    pub tags:     Vec<String>,
+    pub value: String,
+    pub source: String,
+    pub tags: Vec<String>,
     pub added_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IocStats {
     pub sha256_count: usize,
-    pub md5_count:    usize,
-    pub ip_count:     usize,
+    pub md5_count: usize,
+    pub ip_count: usize,
     pub domain_count: usize,
-    pub url_count:    usize,
-    pub total:        usize,
+    pub url_count: usize,
+    pub total: usize,
     pub last_updated: Option<DateTime<Utc>>,
 }
 
@@ -52,10 +52,10 @@ pub struct IocStats {
 /// subdomain matching: an IOC for `evil.com` will match `sub.evil.com`.
 pub struct IocDatabase {
     sha256: HashSet<String>,
-    md5:    HashSet<String>,
-    ips:    HashSet<IpAddr>,
+    md5: HashSet<String>,
+    ips: HashSet<IpAddr>,
     domains: HashSet<String>,
-    urls:   HashSet<String>,
+    urls: HashSet<String>,
     /// Full entries for metadata lookup after a positive match.
     entries: HashMap<String, IocEntry>,
     pub last_updated: Option<DateTime<Utc>>,
@@ -64,11 +64,11 @@ pub struct IocDatabase {
 impl IocDatabase {
     pub fn new() -> Self {
         Self {
-            sha256:  HashSet::new(),
-            md5:     HashSet::new(),
-            ips:     HashSet::new(),
+            sha256: HashSet::new(),
+            md5: HashSet::new(),
+            ips: HashSet::new(),
             domains: HashSet::new(),
-            urls:    HashSet::new(),
+            urls: HashSet::new(),
             entries: HashMap::new(),
             last_updated: None,
         }
@@ -78,15 +78,23 @@ impl IocDatabase {
     pub fn add(&mut self, entry: IocEntry) {
         let key = entry.value.to_lowercase();
         match &entry.ioc_type {
-            IocType::Sha256Hash => { self.sha256.insert(key.clone()); }
-            IocType::Md5Hash    => { self.md5.insert(key.clone()); }
+            IocType::Sha256Hash => {
+                self.sha256.insert(key.clone());
+            }
+            IocType::Md5Hash => {
+                self.md5.insert(key.clone());
+            }
             IocType::Ipv4 => {
                 if let Ok(ip) = key.parse::<IpAddr>() {
                     self.ips.insert(ip);
                 }
             }
-            IocType::Domain => { self.domains.insert(key.clone()); }
-            IocType::Url    => { self.urls.insert(key.clone()); }
+            IocType::Domain => {
+                self.domains.insert(key.clone());
+            }
+            IocType::Url => {
+                self.urls.insert(key.clone());
+            }
         }
         self.entries.insert(key, entry);
     }
@@ -152,18 +160,20 @@ impl IocDatabase {
     pub fn stats(&self) -> IocStats {
         IocStats {
             sha256_count: self.sha256.len(),
-            md5_count:    self.md5.len(),
-            ip_count:     self.ips.len(),
+            md5_count: self.md5.len(),
+            ip_count: self.ips.len(),
             domain_count: self.domains.len(),
-            url_count:    self.urls.len(),
-            total:        self.entries.len(),
+            url_count: self.urls.len(),
+            total: self.entries.len(),
             last_updated: self.last_updated,
         }
     }
 }
 
 impl Default for IocDatabase {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 #[cfg(test)]

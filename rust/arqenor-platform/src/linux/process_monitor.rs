@@ -1,10 +1,10 @@
-use async_trait::async_trait;
-use chrono::Utc;
 use arqenor_core::{
     error::ArqenorError,
     models::process::{ProcessEvent, ProcessEventKind, ProcessInfo},
     traits::process_monitor::ProcessMonitor,
 };
+use async_trait::async_trait;
+use chrono::Utc;
 use std::{collections::HashSet, time::Duration};
 use sysinfo::{ProcessRefreshKind, RefreshKind, System};
 use tokio::{sync::mpsc::Sender, time};
@@ -62,20 +62,21 @@ fn read_proc_maps(pid: u32) -> Vec<String> {
 
 fn build_process_info(p: &sysinfo::Process) -> ProcessInfo {
     let pid = usize::from(p.pid()) as u32;
-    let exe_path = p.exe()
+    let exe_path = p
+        .exe()
         .map(|e| e.to_string_lossy().into_owned())
         .filter(|s| !s.is_empty())
         .or_else(|| proc_exe_path(pid));
 
     ProcessInfo {
         pid,
-        ppid:           p.parent().map(|x| usize::from(x) as u32).unwrap_or(0),
-        name:           p.name().to_string(),
+        ppid: p.parent().map(|x| usize::from(x) as u32).unwrap_or(0),
+        name: p.name().to_string(),
         exe_path,
-        cmdline:        Some(p.cmd().join(" ")),
-        user:           None,
-        sha256:         None,
-        started_at:     None,
+        cmdline: Some(p.cmd().join(" ")),
+        user: None,
+        sha256: None,
+        started_at: None,
         loaded_modules: vec![],
     }
 }
@@ -84,13 +85,13 @@ fn build_process_info(p: &sysinfo::Process) -> ProcessInfo {
 fn stub_process_info(pid: u32) -> ProcessInfo {
     ProcessInfo {
         pid,
-        ppid:           0,
-        name:           String::new(),
-        exe_path:       None,
-        cmdline:        None,
-        user:           None,
-        sha256:         None,
-        started_at:     None,
+        ppid: 0,
+        name: String::new(),
+        exe_path: None,
+        cmdline: None,
+        user: None,
+        sha256: None,
+        started_at: None,
         loaded_modules: vec![],
     }
 }
@@ -169,9 +170,9 @@ async fn proc_watch_loop(tx: Sender<ProcessEvent>) {
                 .unwrap_or_else(|| stub_process_info(pid));
 
             let evt = ProcessEvent {
-                id:         Uuid::new_v4(),
-                kind:       ProcessEventKind::Created,
-                process:    info,
+                id: Uuid::new_v4(),
+                kind: ProcessEventKind::Created,
+                process: info,
                 event_time: Utc::now(),
             };
             if tx.send(evt).await.is_err() {
@@ -182,9 +183,9 @@ async fn proc_watch_loop(tx: Sender<ProcessEvent>) {
         // Gone PIDs → Terminated events
         for &pid in prev_pids.difference(&current_pids) {
             let evt = ProcessEvent {
-                id:         Uuid::new_v4(),
-                kind:       ProcessEventKind::Terminated,
-                process:    stub_process_info(pid),
+                id: Uuid::new_v4(),
+                kind: ProcessEventKind::Terminated,
+                process: stub_process_info(pid),
                 event_time: Utc::now(),
             };
             if tx.send(evt).await.is_err() {

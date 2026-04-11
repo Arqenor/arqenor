@@ -19,14 +19,14 @@ fn make_alert(
     meta: HashMap<String, String>,
 ) -> Alert {
     Alert {
-        id:          Uuid::new_v4(),
+        id: Uuid::new_v4(),
         severity,
-        kind:        kind.to_string(),
+        kind: kind.to_string(),
         message,
         occurred_at: Utc::now(),
-        metadata:    meta,
-        rule_id:     None,
-        attack_id:   Some(attack_id.to_string()),
+        metadata: meta,
+        rule_id: None,
+        attack_id: Some(attack_id.to_string()),
     }
 }
 
@@ -67,12 +67,7 @@ const CRED_DUMP_NAMES: &[&str] = &[
     "crackmapexec.exe",
 ];
 
-const CRED_DUMP_CMDLINE_TOKENS: &[&str] = &[
-    "sekurlsa",
-    "lsadump",
-    "dcsync",
-    "logonpasswords",
-];
+const CRED_DUMP_CMDLINE_TOKENS: &[&str] = &["sekurlsa", "lsadump", "dcsync", "logonpasswords"];
 
 #[cfg(windows)]
 pub fn detect_cred_tools(sys: &sysinfo::System) -> Vec<Alert> {
@@ -80,7 +75,7 @@ pub fn detect_cred_tools(sys: &sysinfo::System) -> Vec<Alert> {
 
     for (_pid, process) in sys.processes() {
         let name_lc = process.name().to_lowercase();
-        let cmdline  = process.cmd().join(" ");
+        let cmdline = process.cmd().join(" ");
         let cmdline_lc = cmdline.to_lowercase();
 
         let name_hit = CRED_DUMP_NAMES
@@ -99,7 +94,10 @@ pub fn detect_cred_tools(sys: &sysinfo::System) -> Vec<Alert> {
                 .unwrap_or_else(|| "<unknown>".to_string());
 
             let reason = if name_hit {
-                format!("Process name matches known credential dumping tool: {}", process.name())
+                format!(
+                    "Process name matches known credential dumping tool: {}",
+                    process.name()
+                )
             } else {
                 format!(
                     "Process cmdline contains credential dumping keyword: {}",
@@ -115,10 +113,10 @@ pub fn detect_cred_tools(sys: &sysinfo::System) -> Vec<Alert> {
             };
 
             let mut meta = HashMap::new();
-            meta.insert("pid".to_string(),      pid_val.to_string());
+            meta.insert("pid".to_string(), pid_val.to_string());
             meta.insert("process_name".to_string(), process.name().to_string());
             meta.insert("exe_path".to_string(), exe);
-            meta.insert("cmdline".to_string(),  cmdline);
+            meta.insert("cmdline".to_string(), cmdline);
 
             alerts.push(make_alert(
                 Severity::Critical,
@@ -154,7 +152,7 @@ pub fn detect_sam_dump(sys: &sysinfo::System) -> Vec<Alert> {
     let mut alerts = Vec::new();
 
     for (_pid, process) in sys.processes() {
-        let cmdline    = process.cmd().join(" ");
+        let cmdline = process.cmd().join(" ");
         let cmdline_lc = cmdline.to_lowercase();
 
         let hit = SAM_DUMP_PATTERNS
@@ -164,14 +162,17 @@ pub fn detect_sam_dump(sys: &sysinfo::System) -> Vec<Alert> {
         if hit {
             let pid_val = usize::from(*_pid) as u32;
             let mut meta = HashMap::new();
-            meta.insert("pid".to_string(),      pid_val.to_string());
+            meta.insert("pid".to_string(), pid_val.to_string());
             meta.insert("process_name".to_string(), process.name().to_string());
-            meta.insert("cmdline".to_string(),  cmdline.clone());
+            meta.insert("cmdline".to_string(), cmdline.clone());
 
             alerts.push(make_alert(
                 Severity::High,
                 "SamHiveDump",
-                format!("SAM/SYSTEM/SECURITY hive dump detected via cmdline: {}", cmdline),
+                format!(
+                    "SAM/SYSTEM/SECURITY hive dump detected via cmdline: {}",
+                    cmdline
+                ),
                 "T1003.002",
                 meta,
             ));
@@ -207,40 +208,40 @@ pub fn detect_browser_cred_access() -> Vec<Alert> {
 struct RansomPattern {
     process_token: &'static str,
     cmdline_token: &'static str,
-    severity:      Severity,
-    description:   &'static str,
+    severity: Severity,
+    description: &'static str,
 }
 
 const RANSOM_PATTERNS: &[RansomPattern] = &[
     RansomPattern {
         process_token: "vssadmin",
         cmdline_token: "delete shadows",
-        severity:      Severity::Critical,
-        description:   "VSS shadow copy deletion — common ransomware pre-encryption step",
+        severity: Severity::Critical,
+        description: "VSS shadow copy deletion — common ransomware pre-encryption step",
     },
     RansomPattern {
         process_token: "bcdedit",
         cmdline_token: "recoveryenabled",
-        severity:      Severity::Critical,
-        description:   "Boot recovery disabled via bcdedit — common ransomware pre-encryption step",
+        severity: Severity::Critical,
+        description: "Boot recovery disabled via bcdedit — common ransomware pre-encryption step",
     },
     RansomPattern {
         process_token: "wbadmin",
         cmdline_token: "delete systemstatebackup",
-        severity:      Severity::Critical,
-        description:   "System state backup deletion via wbadmin",
+        severity: Severity::Critical,
+        description: "System state backup deletion via wbadmin",
     },
     RansomPattern {
         process_token: "wmic",
         cmdline_token: "shadowcopy delete",
-        severity:      Severity::Critical,
-        description:   "VSS shadow copy deletion via WMIC",
+        severity: Severity::Critical,
+        description: "VSS shadow copy deletion via WMIC",
     },
     RansomPattern {
         process_token: "cipher",
         cmdline_token: "/w:",
-        severity:      Severity::High,
-        description:   "cipher /w: free-space wipe — potential ransomware evidence destruction",
+        severity: Severity::High,
+        description: "cipher /w: free-space wipe — potential ransomware evidence destruction",
     },
 ];
 
@@ -249,19 +250,18 @@ pub fn detect_ransomware_signals(sys: &sysinfo::System) -> Vec<Alert> {
     let mut alerts = Vec::new();
 
     for (_pid, process) in sys.processes() {
-        let name_lc    = process.name().to_lowercase();
-        let cmdline    = process.cmd().join(" ");
+        let name_lc = process.name().to_lowercase();
+        let cmdline = process.cmd().join(" ");
         let cmdline_lc = cmdline.to_lowercase();
 
         for pattern in RANSOM_PATTERNS {
-            if name_lc.contains(pattern.process_token)
-                && cmdline_lc.contains(pattern.cmdline_token)
+            if name_lc.contains(pattern.process_token) && cmdline_lc.contains(pattern.cmdline_token)
             {
                 let pid_val = usize::from(*_pid) as u32;
                 let mut meta = HashMap::new();
-                meta.insert("pid".to_string(),          pid_val.to_string());
+                meta.insert("pid".to_string(), pid_val.to_string());
                 meta.insert("process_name".to_string(), process.name().to_string());
-                meta.insert("cmdline".to_string(),      cmdline.clone());
+                meta.insert("cmdline".to_string(), cmdline.clone());
 
                 alerts.push(make_alert(
                     pattern.severity.clone(),
@@ -344,7 +344,7 @@ pub fn check_amsi_integrity() -> Vec<Alert> {
 
             let mut meta = HashMap::new();
             meta.insert("expected_bytes".to_string(), expected_hex);
-            meta.insert("actual_bytes".to_string(),   actual_hex);
+            meta.insert("actual_bytes".to_string(), actual_hex);
             meta.insert(
                 "fn_address".to_string(),
                 format!("{:#018x}", fn_ptr as usize),

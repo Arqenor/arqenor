@@ -1,22 +1,22 @@
-use async_trait::async_trait;
 use arqenor_core::{
     error::ArqenorError,
     models::process::{ProcessEvent, ProcessInfo},
     traits::process_monitor::ProcessMonitor,
 };
+use async_trait::async_trait;
 use sysinfo::{ProcessRefreshKind, RefreshKind, System};
 use tokio::sync::mpsc::Sender;
+use windows::core::{PCWSTR, PWSTR};
 use windows::Win32::Foundation::CloseHandle;
 use windows::Win32::System::Diagnostics::ToolHelp::{
-    CreateToolhelp32Snapshot, Module32FirstW, Module32NextW, MODULEENTRY32W,
-    TH32CS_SNAPMODULE, TH32CS_SNAPMODULE32,
+    CreateToolhelp32Snapshot, Module32FirstW, Module32NextW, MODULEENTRY32W, TH32CS_SNAPMODULE,
+    TH32CS_SNAPMODULE32,
 };
 use windows::Win32::System::EventLog::{EvtClose, EvtNext, EvtRender, EvtSubscribe, EVT_HANDLE};
 use windows::Win32::System::Threading::{
-    CreateEventW, OpenProcess, QueryFullProcessImageNameW,
-    WaitForSingleObject, PROCESS_QUERY_LIMITED_INFORMATION,
+    CreateEventW, OpenProcess, QueryFullProcessImageNameW, WaitForSingleObject,
+    PROCESS_QUERY_LIMITED_INFORMATION,
 };
-use windows::core::{PCWSTR, PWSTR};
 
 pub struct WindowsProcessMonitor;
 
@@ -64,10 +64,8 @@ fn win32_exe_path(pid: u32) -> Option<String> {
 fn enum_modules(pid: u32) -> Vec<String> {
     let mut modules = Vec::new();
     unsafe {
-        let snapshot = match CreateToolhelp32Snapshot(
-            TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32,
-            pid,
-        ) {
+        let snapshot = match CreateToolhelp32Snapshot(TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32, pid)
+        {
             Ok(h) => h,
             Err(_) => return modules,
         };
@@ -101,20 +99,21 @@ fn enum_modules(pid: u32) -> Vec<String> {
 
 fn build_process_info(p: &sysinfo::Process) -> ProcessInfo {
     let pid = usize::from(p.pid()) as u32;
-    let exe_path = p.exe()
+    let exe_path = p
+        .exe()
         .map(|e| e.to_string_lossy().into_owned())
         .filter(|s| !s.is_empty())
         .or_else(|| win32_exe_path(pid));
 
     ProcessInfo {
         pid,
-        ppid:           p.parent().map(|x| usize::from(x) as u32).unwrap_or(0),
-        name:           p.name().to_string(),
+        ppid: p.parent().map(|x| usize::from(x) as u32).unwrap_or(0),
+        name: p.name().to_string(),
         exe_path,
-        cmdline:        Some(p.cmd().join(" ")),
-        user:           None,
-        sha256:         None,
-        started_at:     None,
+        cmdline: Some(p.cmd().join(" ")),
+        user: None,
+        sha256: None,
+        started_at: None,
         loaded_modules: vec![],
     }
 }
@@ -167,8 +166,9 @@ impl ProcessMonitor for WindowsProcessMonitor {
 fn evt_watch_loop(tx: Sender<ProcessEvent>) {
     // Encode string literals as null-terminated UTF-16 slices for PCWSTR
     let channel: Vec<u16> = "Security\0".encode_utf16().collect();
-    let query: Vec<u16> =
-        "*[System[(EventID=4688) or (EventID=4689)]]\0".encode_utf16().collect();
+    let query: Vec<u16> = "*[System[(EventID=4688) or (EventID=4689)]]\0"
+        .encode_utf16()
+        .collect();
 
     unsafe {
         // Signal event: EvtSubscribe will set this when new events arrive
@@ -179,14 +179,14 @@ fn evt_watch_loop(tx: Sender<ProcessEvent>) {
 
         // Subscribe to future Security log events (signal-based, no callback)
         let sub = match EvtSubscribe(
-            EVT_HANDLE(0),                     // local session
-            signal,                            // signal handle
+            EVT_HANDLE(0), // local session
+            signal,        // signal handle
             PCWSTR::from_raw(channel.as_ptr()),
             PCWSTR::from_raw(query.as_ptr()),
-            EVT_HANDLE(0),                     // no bookmark
-            None,                              // no context
-            None,                              // no callback
-            1u32,                              // EvtSubscribeToFutureEvents
+            EVT_HANDLE(0), // no bookmark
+            None,          // no context
+            None,          // no callback
+            1u32,          // EvtSubscribeToFutureEvents
         ) {
             Ok(h) => h,
             Err(_) => {
@@ -211,9 +211,9 @@ fn evt_watch_loop(tx: Sender<ProcessEvent>) {
                 let mut returned = 0u32;
                 if EvtNext(
                     sub,
-                    &mut batch,  // events: &mut [isize]
-                    0,           // timeout ms — non-blocking poll
-                    0,           // flags — reserved
+                    &mut batch, // events: &mut [isize]
+                    0,          // timeout ms — non-blocking poll
+                    0,          // flags — reserved
                     &mut returned,
                 )
                 .is_err()
@@ -226,8 +226,8 @@ fn evt_watch_loop(tx: Sender<ProcessEvent>) {
                     if let Some(evt) = render_event(evt_handle, &mut render_buf) {
                         if tx.blocking_send(evt).is_err() {
                             // Receiver dropped — close remaining handles and exit
-                            for j in i..returned as usize {
-                                let _ = EvtClose(EVT_HANDLE(batch[j]));
+                            for handle in batch.iter().take(returned as usize).skip(i) {
+                                let _ = EvtClose(EVT_HANDLE(*handle));
                             }
                             let _ = EvtClose(sub);
                             let _ = CloseHandle(signal);
@@ -247,8 +247,8 @@ fn evt_watch_loop(tx: Sender<ProcessEvent>) {
 /// Render one EVT_HANDLE to XML, then parse out a `ProcessEvent`.
 /// Resizes the buffer if the initial allocation is too small.
 unsafe fn render_event(handle: EVT_HANDLE, buf: &mut Vec<u16>) -> Option<ProcessEvent> {
-    use chrono::Utc;
     use arqenor_core::models::process::{ProcessEventKind, ProcessInfo};
+    use chrono::Utc;
     use uuid::Uuid;
 
     let mut used = 0u32;
@@ -291,25 +291,28 @@ unsafe fn render_event(handle: EVT_HANDLE, buf: &mut Vec<u16>) -> Option<Process
     let kind = match event_id {
         4688 => ProcessEventKind::Created,
         4689 => ProcessEventKind::Terminated,
-        _    => return None,
+        _ => return None,
     };
 
     let (pid, ppid, name, exe_path, cmdline) = match event_id {
         4688 => {
-            let new_pid  = parse_hex_pid(&extract_evt_data(&xml, "NewProcessId").unwrap_or_default());
-            let par_pid  = parse_hex_pid(&extract_evt_data(&xml, "ProcessId").unwrap_or_default());
-            let exe      = extract_evt_data(&xml, "NewProcessName");
-            let cmd      = extract_evt_data(&xml, "CommandLine");
-            let basename = exe.as_deref()
+            let new_pid =
+                parse_hex_pid(&extract_evt_data(&xml, "NewProcessId").unwrap_or_default());
+            let par_pid = parse_hex_pid(&extract_evt_data(&xml, "ProcessId").unwrap_or_default());
+            let exe = extract_evt_data(&xml, "NewProcessName");
+            let cmd = extract_evt_data(&xml, "CommandLine");
+            let basename = exe
+                .as_deref()
                 .and_then(|p| p.rsplit(['\\', '/']).next())
                 .unwrap_or_default()
                 .to_owned();
             (new_pid, par_pid, basename, exe, cmd)
         }
         4689 => {
-            let pid     = parse_hex_pid(&extract_evt_data(&xml, "ProcessId").unwrap_or_default());
-            let exe     = extract_evt_data(&xml, "ProcessName");
-            let basename = exe.as_deref()
+            let pid = parse_hex_pid(&extract_evt_data(&xml, "ProcessId").unwrap_or_default());
+            let exe = extract_evt_data(&xml, "ProcessName");
+            let basename = exe
+                .as_deref()
                 .and_then(|p| p.rsplit(['\\', '/']).next())
                 .unwrap_or_default()
                 .to_owned();
@@ -338,20 +341,24 @@ unsafe fn render_event(handle: EVT_HANDLE, buf: &mut Vec<u16>) -> Option<Process
 
 /// Extract a value from a `<Tag>value</Tag>` element in the System section.
 fn extract_evt_system<'a>(xml: &'a str, tag: &str) -> Option<&'a str> {
-    let open  = format!("<{tag}>");
+    let open = format!("<{tag}>");
     let close = format!("</{tag}>");
     let start = xml.find(&open)? + open.len();
-    let end   = xml[start..].find(close.as_str())?;
+    let end = xml[start..].find(close.as_str())?;
     Some(&xml[start..start + end])
 }
 
 /// Extract the text content from `<Data Name='name'>text</Data>`.
 fn extract_evt_data(xml: &str, name: &str) -> Option<String> {
     let needle = format!("Name='{name}'>");
-    let start  = xml.find(&needle)? + needle.len();
-    let end    = xml[start..].find("</Data>")?;
-    let value  = xml[start..start + end].trim().to_string();
-    if value.is_empty() { None } else { Some(value) }
+    let start = xml.find(&needle)? + needle.len();
+    let end = xml[start..].find("</Data>")?;
+    let value = xml[start..start + end].trim().to_string();
+    if value.is_empty() {
+        None
+    } else {
+        Some(value)
+    }
 }
 
 /// Parse a hex PID string like `"0x1a2b"` or `"6699"` into a `u32`.

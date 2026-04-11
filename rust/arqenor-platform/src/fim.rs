@@ -1,8 +1,8 @@
+use arqenor_core::models::alert::{Alert, Severity};
+use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use sha2::{Digest, Sha256};
 use uuid::Uuid;
-use arqenor_core::models::alert::{Alert, Severity};
 
 // ---------------------------------------------------------------------------
 // F1 — Baseline storage
@@ -29,14 +29,14 @@ fn make_alert(severity: Severity, path: &Path, reason: &str, attack_id: &str) ->
     metadata.insert("path".into(), path.to_string_lossy().into_owned());
     metadata.insert("reason".into(), reason.into());
     Alert {
-        id:          Uuid::new_v4(),
+        id: Uuid::new_v4(),
         severity,
-        kind:        "FIM".into(),
-        message:     format!("[FIM] {} — {}", reason, path.display()),
+        kind: "FIM".into(),
+        message: format!("[FIM] {} — {}", reason, path.display()),
         occurred_at: chrono::Utc::now(),
         metadata,
-        rule_id:     Some("SENT-FIM".into()),
-        attack_id:   Some(attack_id.into()),
+        rule_id: Some("SENT-FIM".into()),
+        attack_id: Some(attack_id.into()),
     }
 }
 
@@ -65,7 +65,11 @@ pub fn build_baseline(paths: &[PathBuf]) -> FimBaseline {
                 }
             } else {
                 // Partial walk — iterate tolerating errors
-                for e in walkdir::WalkDir::new(path).follow_links(false).into_iter().flatten() {
+                for e in walkdir::WalkDir::new(path)
+                    .follow_links(false)
+                    .into_iter()
+                    .flatten()
+                {
                     let p = e.path().to_path_buf();
                     if p.is_file() {
                         if let Some(hash) = sha256_file(&p) {
@@ -89,9 +93,9 @@ pub fn build_baseline(paths: &[PathBuf]) -> FimBaseline {
 // ---------------------------------------------------------------------------
 
 pub struct FimAlert {
-    pub path:   PathBuf,
+    pub path: PathBuf,
     pub reason: FimAlertReason,
-    pub alert:  Alert,
+    pub alert: Alert,
 }
 
 pub enum FimAlertReason {
@@ -107,15 +111,15 @@ pub fn check_baseline(baseline: &FimBaseline, watch_paths: &[PathBuf]) -> Vec<Fi
     for (path, &original_hash) in &baseline.entries {
         if !path.exists() {
             alerts.push(FimAlert {
-                alert:  make_alert(Severity::Critical, path, "File deleted", "T1485"),
-                path:   path.clone(),
+                alert: make_alert(Severity::Critical, path, "File deleted", "T1485"),
+                path: path.clone(),
                 reason: FimAlertReason::Deleted,
             });
         } else if let Some(current_hash) = sha256_file(path) {
             if current_hash != original_hash {
                 alerts.push(FimAlert {
-                    alert:  make_alert(Severity::High, path, "File modified", "T1565.001"),
-                    path:   path.clone(),
+                    alert: make_alert(Severity::High, path, "File modified", "T1565.001"),
+                    path: path.clone(),
                     reason: FimAlertReason::Modified,
                 });
             }
@@ -127,12 +131,16 @@ pub fn check_baseline(baseline: &FimBaseline, watch_paths: &[PathBuf]) -> Vec<Fi
     // --- Scan watch_paths for newly created files not present in baseline ---
     for watch_path in watch_paths {
         if watch_path.is_dir() {
-            for e in walkdir::WalkDir::new(watch_path).follow_links(false).into_iter().flatten() {
+            for e in walkdir::WalkDir::new(watch_path)
+                .follow_links(false)
+                .into_iter()
+                .flatten()
+            {
                 let p = e.path().to_path_buf();
                 if p.is_file() && !baseline.entries.contains_key(&p) {
                     alerts.push(FimAlert {
-                        alert:  make_alert(Severity::High, &p, "New file created", "T1036"),
-                        path:   p.clone(),
+                        alert: make_alert(Severity::High, &p, "New file created", "T1036"),
+                        path: p.clone(),
                         reason: FimAlertReason::Created,
                     });
                 }
@@ -141,13 +149,8 @@ pub fn check_baseline(baseline: &FimBaseline, watch_paths: &[PathBuf]) -> Vec<Fi
             // Single-file watch path
             if watch_path.is_file() && !baseline.entries.contains_key(watch_path) {
                 alerts.push(FimAlert {
-                    alert:  make_alert(
-                        Severity::High,
-                        watch_path,
-                        "New file created",
-                        "T1036",
-                    ),
-                    path:   watch_path.clone(),
+                    alert: make_alert(Severity::High, watch_path, "New file created", "T1036"),
+                    path: watch_path.clone(),
                     reason: FimAlertReason::Created,
                 });
             }
@@ -216,16 +219,22 @@ pub fn macos_critical_paths() -> Vec<PathBuf> {
 
 pub struct FimMonitor {
     baseline: Option<FimBaseline>,
-    paths:    Vec<PathBuf>,
+    paths: Vec<PathBuf>,
 }
 
 impl FimMonitor {
     pub fn new() -> Self {
-        Self { baseline: None, paths: Vec::new() }
+        Self {
+            baseline: None,
+            paths: Vec::new(),
+        }
     }
 
     pub fn with_paths(paths: Vec<PathBuf>) -> Self {
-        Self { baseline: None, paths }
+        Self {
+            baseline: None,
+            paths,
+        }
     }
 
     /// Build the initial baseline (call once at startup).
@@ -237,7 +246,7 @@ impl FimMonitor {
     pub fn check(&self) -> Vec<FimAlert> {
         match &self.baseline {
             Some(b) => check_baseline(b, &self.paths),
-            None    => Vec::new(),
+            None => Vec::new(),
         }
     }
 

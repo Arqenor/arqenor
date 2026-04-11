@@ -1,10 +1,10 @@
 #[cfg(target_os = "linux")]
 fn main() {
-    use std::path::PathBuf;
     use libbpf_cargo::SkeletonBuilder;
+    use std::path::PathBuf;
 
     let probes_dir = PathBuf::from("src/probes");
-    let out_dir    = PathBuf::from(std::env::var("OUT_DIR").unwrap());
+    let out_dir = PathBuf::from(std::env::var("OUT_DIR").unwrap());
 
     for probe in &["execve", "memory", "persistence", "privesc", "rootkit"] {
         SkeletonBuilder::new()

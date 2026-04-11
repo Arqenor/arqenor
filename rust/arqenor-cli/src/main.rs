@@ -35,7 +35,7 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Scan(args)  => commands::scan::run(args).await,
+        Commands::Scan(args) => commands::scan::run(args).await,
         Commands::Watch(args) => commands::watch::run(args).await,
     }
 }

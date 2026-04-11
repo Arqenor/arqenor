@@ -37,9 +37,9 @@ pub enum PersistenceKind {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PersistenceEntry {
-    pub kind:     PersistenceKind,
-    pub name:     String,
-    pub command:  String,
+    pub kind: PersistenceKind,
+    pub name: String,
+    pub command: String,
     pub location: String,
-    pub is_new:   bool,
+    pub is_new: bool,
 }

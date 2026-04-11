@@ -11,17 +11,17 @@ use super::alert::{Alert, Severity};
 /// investigation; a cluster of them does.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Incident {
-    pub id:         Uuid,
-    pub score:      u32,
-    pub severity:   Severity,
+    pub id: Uuid,
+    pub score: u32,
+    pub severity: Severity,
     /// Deduplicated MITRE ATT&CK IDs across all alerts in this incident.
     pub attack_ids: Vec<String>,
-    pub alerts:     Vec<Alert>,
+    pub alerts: Vec<Alert>,
     /// Human-readable narrative summarising the incident.
-    pub summary:    String,
+    pub summary: String,
     /// Primary process ID (if the incident was correlated by PID).
-    pub pid:        Option<u32>,
+    pub pid: Option<u32>,
     pub first_seen: DateTime<Utc>,
-    pub last_seen:  DateTime<Utc>,
-    pub is_closed:  bool,
+    pub last_seen: DateTime<Utc>,
+    pub is_closed: bool,
 }

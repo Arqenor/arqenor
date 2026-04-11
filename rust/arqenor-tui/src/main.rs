@@ -18,11 +18,11 @@ async fn main() -> Result<()> {
     enable_raw_mode()?;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen)?;
-    let backend  = CrosstermBackend::new(stdout);
+    let backend = CrosstermBackend::new(stdout);
     let mut term = Terminal::new(backend)?;
 
     let mut app = App::new().await?;
-    let res     = run_app(&mut term, &mut app).await;
+    let res = run_app(&mut term, &mut app).await;
 
     disable_raw_mode()?;
     execute!(term.backend_mut(), LeaveAlternateScreen)?;
@@ -35,8 +35,8 @@ async fn main() -> Result<()> {
 }
 
 async fn run_app<B: ratatui::backend::Backend>(
-    term:  &mut Terminal<B>,
-    app:   &mut App,
+    term: &mut Terminal<B>,
+    app: &mut App,
 ) -> Result<()> {
     loop {
         term.draw(|f| ui::draw(f, app))?;
@@ -58,7 +58,9 @@ async fn run_app<B: ratatui::backend::Backend>(
                     KeyCode::Char('k') | KeyCode::Char('K') => app.kill_selected(),
                     KeyCode::Char('h') | KeyCode::Char('H') => app.hash_selected(),
                     KeyCode::Char('c') | KeyCode::Char('C') => app.copy_path_selected(),
-                    KeyCode::Esc => { app.action_menu = false; }
+                    KeyCode::Esc => {
+                        app.action_menu = false;
+                    }
                     _ => {}
                 }
                 continue;
@@ -97,8 +99,8 @@ async fn run_app<B: ratatui::backend::Backend>(
                 KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => break,
 
                 // Navigation
-                KeyCode::Down  | KeyCode::Char('j') => app.next(),
-                KeyCode::Up    | KeyCode::Char('k') => app.prev(),
+                KeyCode::Down | KeyCode::Char('j') => app.next(),
+                KeyCode::Up | KeyCode::Char('k') => app.prev(),
 
                 // Tab switching
                 KeyCode::Tab | KeyCode::Right => app.switch_tab(app.tab.next()),
@@ -153,16 +155,24 @@ async fn run_app<B: ratatui::backend::Backend>(
 
                 // Sort columns (Processes tab only)
                 KeyCode::Char('F') | KeyCode::Char('f') => {
-                    if app.tab == Tab::Processes { app.toggle_sort(SortCol::Risk); }
+                    if app.tab == Tab::Processes {
+                        app.toggle_sort(SortCol::Risk);
+                    }
                 }
                 KeyCode::Char('P') => {
-                    if app.tab == Tab::Processes { app.toggle_sort(SortCol::Pid); }
+                    if app.tab == Tab::Processes {
+                        app.toggle_sort(SortCol::Pid);
+                    }
                 }
                 KeyCode::Char('N') => {
-                    if app.tab == Tab::Processes { app.toggle_sort(SortCol::Name); }
+                    if app.tab == Tab::Processes {
+                        app.toggle_sort(SortCol::Name);
+                    }
                 }
                 KeyCode::Char('X') => {
-                    if app.tab == Tab::Processes { app.toggle_sort(SortCol::Path); }
+                    if app.tab == Tab::Processes {
+                        app.toggle_sort(SortCol::Path);
+                    }
                 }
 
                 // Tree mode toggle (Processes tab only)

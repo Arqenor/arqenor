@@ -1,5 +1,4 @@
 use anyhow::Result;
-use clap::Args;
 use arqenor_core::{
     ioc::{feeds, IocDatabase},
     models::alert::{Alert, Severity},
@@ -10,6 +9,7 @@ use arqenor_core::{
 };
 use arqenor_platform::{new_connection_monitor, new_fs_scanner, new_process_monitor};
 use arqenor_store::SqliteStore;
+use clap::Args;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
@@ -36,7 +36,6 @@ pub struct WatchArgs {
     /// Disable IOC threat-intelligence feed loading.
     #[arg(long)]
     pub no_ioc: bool,
-
 }
 
 pub async fn run(args: WatchArgs) -> Result<()> {
@@ -70,18 +69,18 @@ pub async fn run(args: WatchArgs) -> Result<()> {
         None
     };
 
-    let n_rules  = config.rules.len();
-    let n_file   = config.sensitive_paths.len();
-    let n_ioc    = if let Some(ref db) = ioc_db {
+    let n_rules = config.rules.len();
+    let n_file = config.sensitive_paths.len();
+    let n_ioc = if let Some(ref db) = ioc_db {
         db.read().await.stats().total
     } else {
         0
     };
 
     // ── Channels ─────────────────────────────────────────────────────────────
-    let (proc_tx, proc_rx)       = mpsc::channel(512);
-    let (fim_tx, fim_rx)         = mpsc::channel(512);
-    let (conn_tx, conn_rx)       = mpsc::channel::<ConnectionInfo>(512);
+    let (proc_tx, proc_rx) = mpsc::channel(512);
+    let (fim_tx, fim_rx) = mpsc::channel(512);
+    let (conn_tx, conn_rx) = mpsc::channel::<ConnectionInfo>(512);
     let (alert_tx, mut alert_rx) = mpsc::channel::<Alert>(256);
 
     // ── Start platform watchers (non-fatal if unsupported) ───────────────────
@@ -96,7 +95,10 @@ pub async fn run(args: WatchArgs) -> Result<()> {
     // ── Start connection monitor (non-fatal if unsupported) ─────────────────
     {
         let conn_monitor = new_connection_monitor();
-        match conn_monitor.watch(conn_tx.clone(), CONN_POLL_INTERVAL_MS).await {
+        match conn_monitor
+            .watch(conn_tx.clone(), CONN_POLL_INTERVAL_MS)
+            .await
+        {
             Ok(()) => {
                 tracing::info!("connection monitor: platform watch active");
             }
@@ -121,7 +123,7 @@ pub async fn run(args: WatchArgs) -> Result<()> {
     // ── Start detection pipeline (with connection stream) ─────────────────────
     let pipeline = DetectionPipeline::with_connections(config, proc_rx, fim_rx, conn_rx, alert_tx)
         .with_scan_alerts(scan_rx);
-    let stats    = pipeline.stats();
+    let stats = pipeline.stats();
     tokio::spawn(pipeline.run());
 
     // ── Periodic host scans (Windows: memory, ntdll hooks, BYOVD) ────────
@@ -135,17 +137,15 @@ pub async fn run(args: WatchArgs) -> Result<()> {
     // ── DB writer thread ──────────────────────────────────────────────────────
     let db_path = args.db.clone();
     let (db_tx, db_rx) = std::sync::mpsc::sync_channel::<Alert>(256);
-    std::thread::spawn(move || {
-        match SqliteStore::open(&db_path) {
-            Ok(store) => {
-                while let Ok(alert) = db_rx.recv() {
-                    if let Err(e) = store.insert_alert(&alert) {
-                        warn!("db write error: {e}");
-                    }
+    std::thread::spawn(move || match SqliteStore::open(&db_path) {
+        Ok(store) => {
+            while let Ok(alert) = db_rx.recv() {
+                if let Err(e) = store.insert_alert(&alert) {
+                    warn!("db write error: {e}");
                 }
             }
-            Err(e) => warn!("failed to open alert store: {e}"),
         }
+        Err(e) => warn!("failed to open alert store: {e}"),
     });
 
     // ── Periodic stats ───────────────────────────────────────────────────────
@@ -191,19 +191,25 @@ pub async fn run(args: WatchArgs) -> Result<()> {
 
 fn platform_default_path() -> PathBuf {
     #[cfg(target_os = "windows")]
-    { PathBuf::from(r"C:\Windows\System32") }
+    {
+        PathBuf::from(r"C:\Windows\System32")
+    }
     #[cfg(target_os = "linux")]
-    { PathBuf::from("/etc") }
+    {
+        PathBuf::from("/etc")
+    }
     #[cfg(not(any(target_os = "windows", target_os = "linux")))]
-    { PathBuf::from("/etc") }
+    {
+        PathBuf::from("/etc")
+    }
 }
 
 fn severity_tag(s: &Severity) -> &'static str {
     match s {
-        Severity::Info     => "INFO",
-        Severity::Low      => "LOW ",
-        Severity::Medium   => "MED ",
-        Severity::High     => "HIGH",
+        Severity::Info => "INFO",
+        Severity::Low => "LOW ",
+        Severity::Medium => "MED ",
+        Severity::High => "HIGH",
         Severity::Critical => "CRIT",
     }
 }
@@ -224,12 +230,10 @@ fn print_alert(a: &Alert) {
 /// Periodically run memory scans, ntdll hook checks, and BYOVD detection,
 /// pushing any resulting alerts into the pipeline via `scan_tx`.
 #[cfg(target_os = "windows")]
-async fn run_windows_host_scans(
-    scan_tx: mpsc::Sender<Alert>,
-) {
-    use chrono::Utc;
+async fn run_windows_host_scans(scan_tx: mpsc::Sender<Alert>) {
     use arqenor_core::models::alert::Severity as Sev;
     use arqenor_platform::windows::{byovd, memory_scan, ntdll_check};
+    use chrono::Utc;
     use std::collections::HashMap;
     use uuid::Uuid;
 
@@ -265,15 +269,21 @@ async fn run_windows_host_scans(
                     rule_id: Some("SENT-DRV-001".into()),
                     attack_id: Some("T1068".into()),
                 };
-                if scan_tx.send(alert).await.is_err() { return; }
+                if scan_tx.send(alert).await.is_err() {
+                    return;
+                }
             }
         }
 
         // ── ntdll hooks ────────────────────────────────────────────────
         if let Ok(results) = tokio::task::spawn_blocking(ntdll_check::check_ntdll_hooks).await {
             for hook in results {
-                if !hook.is_hooked { continue; }
-                let hook_type_str = hook.hook_type.as_ref()
+                if !hook.is_hooked {
+                    continue;
+                }
+                let hook_type_str = hook
+                    .hook_type
+                    .as_ref()
                     .map(|h| format!("{:?}", h))
                     .unwrap_or_else(|| "Unknown".into());
                 let mut meta = HashMap::new();
@@ -283,13 +293,18 @@ async fn run_windows_host_scans(
                     id: Uuid::new_v4(),
                     severity: Sev::High,
                     kind: "ntdll_hook".into(),
-                    message: format!("ntdll hook detected: {} ({})", hook.function_name, hook_type_str),
+                    message: format!(
+                        "ntdll hook detected: {} ({})",
+                        hook.function_name, hook_type_str
+                    ),
                     occurred_at: Utc::now(),
                     metadata: meta,
                     rule_id: Some("SENT-MEM-001".into()),
                     attack_id: Some("T1562.001".into()),
                 };
-                if scan_tx.send(alert).await.is_err() { return; }
+                if scan_tx.send(alert).await.is_err() {
+                    return;
+                }
             }
         }
 
@@ -299,18 +314,28 @@ async fn run_windows_host_scans(
                 for anomaly in &result.suspicious {
                     let (msg, attack_id) = match anomaly {
                         memory_scan::MemoryAnomaly::AnonymousExecutable { base, size, .. } => (
-                            format!("Anonymous executable memory in PID {} ({}) at {:#x} ({} bytes)",
-                                result.pid, result.image_path, base, size),
+                            format!(
+                                "Anonymous executable memory in PID {} ({}) at {:#x} ({} bytes)",
+                                result.pid, result.image_path, base, size
+                            ),
                             "T1055",
                         ),
-                        memory_scan::MemoryAnomaly::ProcessHollowing { base, disk_path, mismatch } => (
-                            format!("Process hollowing in PID {} ({}) at {:#x}: {} ({})",
-                                result.pid, result.image_path, base, mismatch, disk_path),
+                        memory_scan::MemoryAnomaly::ProcessHollowing {
+                            base,
+                            disk_path,
+                            mismatch,
+                        } => (
+                            format!(
+                                "Process hollowing in PID {} ({}) at {:#x}: {} ({})",
+                                result.pid, result.image_path, base, mismatch, disk_path
+                            ),
                             "T1055.012",
                         ),
                         memory_scan::MemoryAnomaly::ExecutableHeap { base, size } => (
-                            format!("Executable heap in PID {} ({}) at {:#x} ({} bytes)",
-                                result.pid, result.image_path, base, size),
+                            format!(
+                                "Executable heap in PID {} ({}) at {:#x} ({} bytes)",
+                                result.pid, result.image_path, base, size
+                            ),
                             "T1055",
                         ),
                     };
@@ -327,10 +352,11 @@ async fn run_windows_host_scans(
                         rule_id: Some("SENT-MEM-002".into()),
                         attack_id: Some(attack_id.into()),
                     };
-                    if scan_tx.send(alert).await.is_err() { return; }
+                    if scan_tx.send(alert).await.is_err() {
+                        return;
+                    }
                 }
             }
         }
-
     }
 }

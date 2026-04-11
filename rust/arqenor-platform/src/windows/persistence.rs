@@ -1,9 +1,9 @@
-use async_trait::async_trait;
 use arqenor_core::{
     error::ArqenorError,
     models::persistence::{PersistenceEntry, PersistenceKind},
     traits::persistence::PersistenceDetector,
 };
+use async_trait::async_trait;
 use std::path::PathBuf;
 
 #[cfg(windows)]
@@ -45,19 +45,19 @@ fn enum_run_keys() -> Vec<PersistenceEntry> {
         let hive = match *hive_name {
             "HKLM" => RegKey::predef(HKEY_LOCAL_MACHINE),
             "HKCU" => RegKey::predef(HKEY_CURRENT_USER),
-            _      => continue,
+            _ => continue,
         };
         let key = match hive.open_subkey(subkey) {
-            Ok(k)  => k,
+            Ok(k) => k,
             Err(_) => continue,
         };
         for (name, value) in key.enum_values().filter_map(|r| r.ok()) {
             entries.push(PersistenceEntry {
-                kind:     PersistenceKind::RegistryRun,
+                kind: PersistenceKind::RegistryRun,
                 name,
-                command:  value.to_string(),
+                command: value.to_string(),
                 location: format!("{}\\{}", hive_name, subkey),
-                is_new:   false,
+                is_new: false,
             });
         }
     }
@@ -75,17 +75,15 @@ fn enum_run_keys() -> Vec<PersistenceEntry> {
 fn enum_services() -> Vec<PersistenceEntry> {
     let mut entries = Vec::new();
     let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
-    let services = match hklm.open_subkey_with_flags(
-        r"SYSTEM\CurrentControlSet\Services",
-        KEY_READ,
-    ) {
-        Ok(k)  => k,
+    let services = match hklm.open_subkey_with_flags(r"SYSTEM\CurrentControlSet\Services", KEY_READ)
+    {
+        Ok(k) => k,
         Err(_) => return entries,
     };
 
     for svc_name in services.enum_keys().filter_map(|r| r.ok()) {
         let svc_key = match services.open_subkey(&svc_name) {
-            Ok(k)  => k,
+            Ok(k) => k,
             Err(_) => continue,
         };
 
@@ -105,11 +103,11 @@ fn enum_services() -> Vec<PersistenceEntry> {
             .unwrap_or_else(|_| svc_name.clone());
 
         entries.push(PersistenceEntry {
-            kind:     PersistenceKind::WindowsService,
-            name:     display_name,
-            command:  image_path,
+            kind: PersistenceKind::WindowsService,
+            name: display_name,
+            command: image_path,
             location: format!(r"HKLM\SYSTEM\CurrentControlSet\Services\{}", svc_name),
-            is_new:   false,
+            is_new: false,
         });
     }
     entries
@@ -128,7 +126,7 @@ fn enum_scheduled_tasks() -> Vec<PersistenceEntry> {
         r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\Tree",
         KEY_READ,
     ) {
-        Ok(k)  => k,
+        Ok(k) => k,
         Err(_) => return entries,
     };
     collect_tasks(&tree, "", &mut entries);
@@ -140,14 +138,18 @@ fn collect_tasks(key: &RegKey, path: &str, out: &mut Vec<PersistenceEntry>) {
     // A key that has an "Id" value is a task leaf node.
     if key.get_value::<String, _>("Id").is_ok() {
         let task_name = path.rsplit('\\').next().unwrap_or(path).to_string();
-        let task_path = if path.is_empty() { "\\".to_string() } else { format!("\\{}", path) };
+        let task_path = if path.is_empty() {
+            "\\".to_string()
+        } else {
+            format!("\\{}", path)
+        };
         let command = task_cmd_from_xml(&task_path).unwrap_or_default();
         out.push(PersistenceEntry {
-            kind:     PersistenceKind::ScheduledTask,
-            name:     task_name,
+            kind: PersistenceKind::ScheduledTask,
+            name: task_name,
             command,
             location: format!("Scheduled Tasks: {}", task_path),
-            is_new:   false,
+            is_new: false,
         });
         return;
     }
@@ -169,12 +171,16 @@ fn collect_tasks(key: &RegKey, path: &str, out: &mut Vec<PersistenceEntry>) {
 /// extract the command from the first `<Exec>` action's `<Command>` + `<Arguments>`.
 fn task_cmd_from_xml(task_path: &str) -> Option<String> {
     let sys_root = std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".to_string());
-    let rel = task_path.trim_start_matches('\\').replace('\\', std::path::MAIN_SEPARATOR_STR);
-    let xml_path: PathBuf = [sys_root.as_str(), "System32", "Tasks", rel.as_str()].iter().collect();
+    let rel = task_path
+        .trim_start_matches('\\')
+        .replace('\\', std::path::MAIN_SEPARATOR_STR);
+    let xml_path: PathBuf = [sys_root.as_str(), "System32", "Tasks", rel.as_str()]
+        .iter()
+        .collect();
 
     let content = std::fs::read_to_string(&xml_path).ok()?;
-    let command  = extract_xml_tag(&content, "Command")?;
-    let args     = extract_xml_tag(&content, "Arguments")
+    let command = extract_xml_tag(&content, "Command")?;
+    let args = extract_xml_tag(&content, "Arguments")
         .map(|a| format!(" {}", a))
         .unwrap_or_default();
 
@@ -183,12 +189,16 @@ fn task_cmd_from_xml(task_path: &str) -> Option<String> {
 
 /// Minimal tag extractor — sufficient for well-formed Windows task XML.
 fn extract_xml_tag(xml: &str, tag: &str) -> Option<String> {
-    let open  = format!("<{}>", tag);
+    let open = format!("<{}>", tag);
     let close = format!("</{}>", tag);
     let start = xml.find(&open)? + open.len();
-    let end   = xml[start..].find(&close)?;
+    let end = xml[start..].find(&close)?;
     let value = xml[start..start + end].trim().to_string();
-    if value.is_empty() { None } else { Some(value) }
+    if value.is_empty() {
+        None
+    } else {
+        Some(value)
+    }
 }
 
 // ── Environment variable expansion ───────────────────────────────────────────
@@ -233,7 +243,7 @@ fn enum_wmi_subscriptions() -> Vec<PersistenceEntry> {
     let mut entries = Vec::new();
 
     let queries: &[(&str, &str, &str)] = &[
-        (r"\\root\subscription", "__EventFilter",  "EventFilter"),
+        (r"\\root\subscription", "__EventFilter", "EventFilter"),
         (r"\\root\subscription", "__EventConsumer", "EventConsumer"),
     ];
 
@@ -263,11 +273,11 @@ fn enum_wmi_subscriptions() -> Vec<PersistenceEntry> {
                     continue;
                 }
                 entries.push(PersistenceEntry {
-                    kind:     PersistenceKind::WmiSubscription,
-                    name:     name.clone(),
-                    command:  format!("{} subscription: {}", label, name),
+                    kind: PersistenceKind::WmiSubscription,
+                    name: name.clone(),
+                    command: format!("{} subscription: {}", label, name),
                     location: format!(r"WMI\root\subscription\{}", class),
-                    is_new:   false,
+                    is_new: false,
                 });
             }
         }
@@ -289,18 +299,15 @@ fn enum_com_hijacking() -> Vec<PersistenceEntry> {
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
     let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
 
-    let clsid_key = match hkcu.open_subkey_with_flags(
-        r"Software\Classes\CLSID",
-        KEY_READ,
-    ) {
-        Ok(k)  => k,
+    let clsid_key = match hkcu.open_subkey_with_flags(r"Software\Classes\CLSID", KEY_READ) {
+        Ok(k) => k,
         Err(_) => return entries,
     };
 
     for clsid in clsid_key.enum_keys().filter_map(|r| r.ok()) {
         let inproc_path = format!(r"{}\InprocServer32", clsid);
         let inproc = match clsid_key.open_subkey_with_flags(&inproc_path, KEY_READ) {
-            Ok(k)  => k,
+            Ok(k) => k,
             Err(_) => continue,
         };
 
@@ -317,16 +324,13 @@ fn enum_com_hijacking() -> Vec<PersistenceEntry> {
         let in_system32 = dll_path.to_lowercase().contains("system32");
 
         if in_hklm || !in_system32 {
-            let location = format!(
-                r"HKCU\Software\Classes\CLSID\{}\InprocServer32",
-                clsid
-            );
+            let location = format!(r"HKCU\Software\Classes\CLSID\{}\InprocServer32", clsid);
             entries.push(PersistenceEntry {
-                kind:     PersistenceKind::ComHijacking,
-                name:     clsid.clone(),
-                command:  dll_path,
+                kind: PersistenceKind::ComHijacking,
+                name: clsid.clone(),
+                command: dll_path,
                 location,
-                is_new:   false,
+                is_new: false,
             });
         }
     }
@@ -364,7 +368,7 @@ fn enum_bits_jobs() -> Vec<PersistenceEntry> {
         .args(["/list", "/allusers", "/verbose"])
         .output()
     {
-        Ok(o)  => o,
+        Ok(o) => o,
         Err(_) => return entries,
     };
 
@@ -401,11 +405,11 @@ fn enum_bits_jobs() -> Vec<PersistenceEntry> {
             if is_suspicious {
                 let job_name = current_job.clone().unwrap_or_else(|| "Unknown".to_string());
                 entries.push(PersistenceEntry {
-                    kind:     PersistenceKind::BitsJob,
-                    name:     job_name,
-                    command:  url,
+                    kind: PersistenceKind::BitsJob,
+                    name: job_name,
+                    command: url,
                     location: "BITS Jobs".to_string(),
-                    is_new:   false,
+                    is_new: false,
                 });
             }
         }
@@ -431,7 +435,7 @@ fn enum_appinit_dlls() -> Vec<PersistenceEntry> {
 
     for reg_path in paths {
         let key = match hklm.open_subkey_with_flags(reg_path, KEY_READ) {
-            Ok(k)  => k,
+            Ok(k) => k,
             Err(_) => continue,
         };
 
@@ -441,11 +445,11 @@ fn enum_appinit_dlls() -> Vec<PersistenceEntry> {
         }
 
         entries.push(PersistenceEntry {
-            kind:     PersistenceKind::AppInitDll,
-            name:     "AppInit_DLLs".to_string(),
-            command:  value,
+            kind: PersistenceKind::AppInitDll,
+            name: "AppInit_DLLs".to_string(),
+            command: value,
             location: format!(r"HKLM\{}", reg_path),
-            is_new:   false,
+            is_new: false,
         });
     }
 
@@ -466,18 +470,18 @@ fn enum_ifeo_hijacks() -> Vec<PersistenceEntry> {
         r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options",
         KEY_READ,
     ) {
-        Ok(k)  => k,
+        Ok(k) => k,
         Err(_) => return entries,
     };
 
     for exe_name in ifeo.enum_keys().filter_map(|r| r.ok()) {
         let exe_key = match ifeo.open_subkey_with_flags(&exe_name, KEY_READ) {
-            Ok(k)  => k,
+            Ok(k) => k,
             Err(_) => continue,
         };
 
         let debugger: String = match exe_key.get_value("Debugger") {
-            Ok(v)  => v,
+            Ok(v) => v,
             Err(_) => continue,
         };
 
@@ -510,8 +514,7 @@ fn enum_ifeo_hijacks() -> Vec<PersistenceEntry> {
 fn enum_accessibility_files() -> Vec<PersistenceEntry> {
     let mut entries = Vec::new();
 
-    let sys_root =
-        std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".to_string());
+    let sys_root = std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".to_string());
 
     let targets = &[
         "sethc.exe",
@@ -525,7 +528,7 @@ fn enum_accessibility_files() -> Vec<PersistenceEntry> {
         let path = PathBuf::from(format!(r"{}\System32\{}", sys_root, target));
 
         let metadata = match std::fs::metadata(&path) {
-            Ok(m)  => m,
+            Ok(m) => m,
             Err(_) => continue,
         };
 
@@ -544,11 +547,11 @@ fn enum_accessibility_files() -> Vec<PersistenceEntry> {
         // Flag if suspiciously small (potential replacement with stub/cmd.exe hardlink)
         if size < 50_000 {
             entries.push(PersistenceEntry {
-                kind:     PersistenceKind::AccessibilityHijack,
-                name:     target.to_string(),
-                command:  format!("size={}B {}", size, hash),
+                kind: PersistenceKind::AccessibilityHijack,
+                name: target.to_string(),
+                command: format!("size={}B {}", size, hash),
                 location: path.to_string_lossy().to_string(),
-                is_new:   false,
+                is_new: false,
             });
         }
     }
@@ -559,13 +562,7 @@ fn enum_accessibility_files() -> Vec<PersistenceEntry> {
 // ── B8: Print Monitor / LSA Provider (T1547.010 / T1547.002) ─────────────────
 
 const LSA_KNOWN_GOOD: &[&str] = &[
-    "msv1_0",
-    "kerberos",
-    "wdigest",
-    "tspkg",
-    "pku2u",
-    "cloudap",
-    "livessp",
+    "msv1_0", "kerberos", "wdigest", "tspkg", "pku2u", "cloudap", "livessp",
 ];
 
 #[cfg(windows)]
@@ -574,49 +571,42 @@ fn enum_print_monitors() -> Vec<PersistenceEntry> {
     let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
 
     // ── Print Monitors ────────────────────────────────────────────────────
-    let monitors_key = hklm.open_subkey_with_flags(
-        r"SYSTEM\CurrentControlSet\Control\Print\Monitors",
-        KEY_READ,
-    );
+    let monitors_key =
+        hklm.open_subkey_with_flags(r"SYSTEM\CurrentControlSet\Control\Print\Monitors", KEY_READ);
 
     if let Ok(monitors) = monitors_key {
         for monitor_name in monitors.enum_keys().filter_map(|r| r.ok()) {
             let mk = match monitors.open_subkey_with_flags(&monitor_name, KEY_READ) {
-                Ok(k)  => k,
+                Ok(k) => k,
                 Err(_) => continue,
             };
             let dll: String = mk.get_value("Driver").unwrap_or_default();
             if dll.trim().is_empty() {
                 continue;
             }
-            let is_ms = dll.to_lowercase().contains("microsoft")
-                || dll.to_lowercase().contains("system32");
+            let is_ms =
+                dll.to_lowercase().contains("microsoft") || dll.to_lowercase().contains("system32");
             if !is_ms {
                 entries.push(PersistenceEntry {
-                    kind:     PersistenceKind::PrintMonitor,
-                    name:     monitor_name.clone(),
-                    command:  dll,
+                    kind: PersistenceKind::PrintMonitor,
+                    name: monitor_name.clone(),
+                    command: dll,
                     location: format!(
                         r"HKLM\SYSTEM\CurrentControlSet\Control\Print\Monitors\{}",
                         monitor_name
                     ),
-                    is_new:   false,
+                    is_new: false,
                 });
             }
         }
     }
 
     // ── LSA Authentication Packages ───────────────────────────────────────
-    let lsa_key = hklm.open_subkey_with_flags(
-        r"SYSTEM\CurrentControlSet\Control\Lsa",
-        KEY_READ,
-    );
+    let lsa_key = hklm.open_subkey_with_flags(r"SYSTEM\CurrentControlSet\Control\Lsa", KEY_READ);
 
     if let Ok(lsa) = lsa_key {
         // Authentication Packages is REG_MULTI_SZ
-        let packages: Vec<String> = lsa
-            .get_value("Authentication Packages")
-            .unwrap_or_default();
+        let packages: Vec<String> = lsa.get_value("Authentication Packages").unwrap_or_default();
 
         for pkg in packages {
             let pkg = pkg.trim().to_string();
@@ -629,11 +619,11 @@ fn enum_print_monitors() -> Vec<PersistenceEntry> {
             let is_ms = pkg.to_lowercase().contains("microsoft");
             if !known && !is_ms {
                 entries.push(PersistenceEntry {
-                    kind:     PersistenceKind::LsaProvider,
-                    name:     pkg.clone(),
-                    command:  pkg,
+                    kind: PersistenceKind::LsaProvider,
+                    name: pkg.clone(),
+                    command: pkg,
                     location: r"HKLM\SYSTEM\CurrentControlSet\Control\Lsa".to_string(),
-                    is_new:   false,
+                    is_new: false,
                 });
             }
         }
@@ -654,10 +644,8 @@ fn enum_print_monitors() -> Vec<PersistenceEntry> {
 fn enum_active_setup() -> Vec<PersistenceEntry> {
     let mut entries = Vec::new();
 
-    let hives: &[(&str, winreg::HKEY)] = &[
-        ("HKLM", HKEY_LOCAL_MACHINE),
-        ("HKCU", HKEY_CURRENT_USER),
-    ];
+    let hives: &[(&str, winreg::HKEY)] =
+        &[("HKLM", HKEY_LOCAL_MACHINE), ("HKCU", HKEY_CURRENT_USER)];
 
     for (hive_name, hive) in hives {
         let root = RegKey::predef(*hive);
@@ -665,13 +653,13 @@ fn enum_active_setup() -> Vec<PersistenceEntry> {
             r"SOFTWARE\Microsoft\Active Setup\Installed Components",
             KEY_READ,
         ) {
-            Ok(k)  => k,
+            Ok(k) => k,
             Err(_) => continue,
         };
 
         for component_id in components.enum_keys().filter_map(|r| r.ok()) {
             let comp_key = match components.open_subkey_with_flags(&component_id, KEY_READ) {
-                Ok(k)  => k,
+                Ok(k) => k,
                 Err(_) => continue,
             };
 
@@ -689,14 +677,14 @@ fn enum_active_setup() -> Vec<PersistenceEntry> {
                 .unwrap_or_else(|_| component_id.clone());
 
             entries.push(PersistenceEntry {
-                kind:     PersistenceKind::ActiveSetup,
+                kind: PersistenceKind::ActiveSetup,
                 name,
-                command:  expand_env_str(&stub_path),
+                command: expand_env_str(&stub_path),
                 location: format!(
                     r"{}\SOFTWARE\Microsoft\Active Setup\Installed Components\{}",
                     hive_name, component_id
                 ),
-                is_new:   false,
+                is_new: false,
             });
         }
     }
@@ -714,11 +702,8 @@ fn enum_netsh_helpers() -> Vec<PersistenceEntry> {
     let mut entries = Vec::new();
     let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
 
-    let netsh = match hklm.open_subkey_with_flags(
-        r"SOFTWARE\Microsoft\NetSh",
-        KEY_READ,
-    ) {
-        Ok(k)  => k,
+    let netsh = match hklm.open_subkey_with_flags(r"SOFTWARE\Microsoft\NetSh", KEY_READ) {
+        Ok(k) => k,
         Err(_) => return entries,
     };
 
@@ -730,11 +715,11 @@ fn enum_netsh_helpers() -> Vec<PersistenceEntry> {
         // Flag if NOT in System32 (case-insensitive)
         if !dll_path.to_lowercase().contains("system32") {
             entries.push(PersistenceEntry {
-                kind:     PersistenceKind::NetshHelper,
+                kind: PersistenceKind::NetshHelper,
                 name,
-                command:  dll_path,
+                command: dll_path,
                 location: r"HKLM\SOFTWARE\Microsoft\NetSh".to_string(),
-                is_new:   false,
+                is_new: false,
             });
         }
     }
@@ -784,7 +769,10 @@ impl PersistenceDetector for WindowsPersistenceDetector {
                     .iter()
                     .any(|b| b.name == e.name && b.location == e.location)
             })
-            .map(|mut e| { e.is_new = true; e })
+            .map(|mut e| {
+                e.is_new = true;
+                e
+            })
             .collect();
         Ok(new_entries)
     }

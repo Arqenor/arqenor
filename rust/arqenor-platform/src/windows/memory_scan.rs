@@ -26,21 +26,21 @@ const PE_HEADER_SIZE: usize = 0x1000;
 /// A memory region with analysis metadata.
 #[derive(Debug, Clone)]
 pub struct MemoryRegion {
-    pub base:        usize,
-    pub size:        usize,
-    pub protect:     u32,
-    pub mem_type:    u32,
-    pub state:       u32,
+    pub base: usize,
+    pub size: usize,
+    pub protect: u32,
+    pub mem_type: u32,
+    pub state: u32,
     pub mapped_file: Option<String>,
 }
 
 /// Result of scanning a process's memory.
 #[derive(Debug, Clone)]
 pub struct MemoryScanResult {
-    pub pid:           u32,
-    pub image_path:    String,
+    pub pid: u32,
+    pub image_path: String,
     pub total_regions: usize,
-    pub suspicious:    Vec<MemoryAnomaly>,
+    pub suspicious: Vec<MemoryAnomaly>,
 }
 
 /// Detected memory anomaly.
@@ -49,21 +49,18 @@ pub enum MemoryAnomaly {
     /// Anonymous executable memory -- no file backing + EXECUTE permission.
     /// Strong indicator of shellcode injection.
     AnonymousExecutable {
-        base:    usize,
-        size:    usize,
+        base: usize,
+        size: usize,
         protect: u32,
     },
     /// PE header in memory differs from PE on disk -- process hollowing.
     ProcessHollowing {
-        base:      usize,
+        base: usize,
         disk_path: String,
-        mismatch:  String,
+        mismatch: String,
     },
     /// Heap memory marked as executable -- suspicious unless JIT compiler.
-    ExecutableHeap {
-        base: usize,
-        size: usize,
-    },
+    ExecutableHeap { base: usize, size: usize },
 }
 
 // -- Public API ---------------------------------------------------------------
@@ -76,12 +73,8 @@ pub fn scan_process(pid: u32) -> Result<MemoryScanResult, ArqenorError> {
 
     // SAFETY: OpenProcess is safe when given a valid PID; we check the result.
     let handle = unsafe {
-        OpenProcess(
-            PROCESS_QUERY_INFORMATION | PROCESS_VM_READ,
-            false,
-            pid,
-        )
-        .map_err(|e| ArqenorError::Platform(format!("OpenProcess({pid}): {e}")))?
+        OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, false, pid)
+            .map_err(|e| ArqenorError::Platform(format!("OpenProcess({pid}): {e}")))?
     };
 
     let regions = enumerate_regions(handle);
@@ -97,13 +90,10 @@ pub fn scan_process(pid: u32) -> Result<MemoryScanResult, ArqenorError> {
         let is_executable = is_exec_protect(region.protect);
 
         // 1. Anonymous executable memory (MEM_PRIVATE + exec + no mapped file).
-        if is_executable
-            && region.mem_type == MEM_PRIVATE.0
-            && region.mapped_file.is_none()
-        {
+        if is_executable && region.mem_type == MEM_PRIVATE.0 && region.mapped_file.is_none() {
             suspicious.push(MemoryAnomaly::AnonymousExecutable {
-                base:    region.base,
-                size:    region.size,
+                base: region.base,
+                size: region.size,
                 protect: region.protect,
             });
         }
@@ -132,7 +122,9 @@ pub fn scan_process(pid: u32) -> Result<MemoryScanResult, ArqenorError> {
     }
 
     // SAFETY: Closing a valid handle we opened above.
-    unsafe { let _ = CloseHandle(handle); }
+    unsafe {
+        let _ = CloseHandle(handle);
+    }
 
     Ok(MemoryScanResult {
         pid,
@@ -145,9 +137,8 @@ pub fn scan_process(pid: u32) -> Result<MemoryScanResult, ArqenorError> {
 /// Scan all running processes and return anomalies.
 /// Skips system processes (PID 0, PID 4) and processes we cannot open.
 pub fn scan_all_processes() -> Vec<MemoryScanResult> {
-    let mut sys = System::new_with_specifics(
-        RefreshKind::new().with_processes(ProcessRefreshKind::new()),
-    );
+    let mut sys =
+        System::new_with_specifics(RefreshKind::new().with_processes(ProcessRefreshKind::new()));
     sys.refresh_all();
 
     sys.processes()
@@ -200,11 +191,11 @@ fn enumerate_regions(handle: HANDLE) -> Vec<MemoryRegion> {
         };
 
         regions.push(MemoryRegion {
-            base:     mbi.BaseAddress as usize,
-            size:     mbi.RegionSize,
-            protect:  mbi.Protect.0,
+            base: mbi.BaseAddress as usize,
+            size: mbi.RegionSize,
+            protect: mbi.Protect.0,
             mem_type: mbi.Type.0,
-            state:    mbi.State.0,
+            state: mbi.State.0,
             mapped_file,
         });
 
@@ -325,10 +316,8 @@ fn check_hollowing(handle: HANDLE, image_path: &str, base: usize) -> Option<Memo
 
 /// Return true if the protection flags include any EXECUTE variant.
 fn is_exec_protect(protect: u32) -> bool {
-    const EXEC_FLAGS: u32 = PAGE_EXECUTE.0
-        | PAGE_EXECUTE_READ.0
-        | PAGE_EXECUTE_READWRITE.0
-        | PAGE_EXECUTE_WRITECOPY.0;
+    const EXEC_FLAGS: u32 =
+        PAGE_EXECUTE.0 | PAGE_EXECUTE_READ.0 | PAGE_EXECUTE_READWRITE.0 | PAGE_EXECUTE_WRITECOPY.0;
     protect & EXEC_FLAGS != 0
 }
 

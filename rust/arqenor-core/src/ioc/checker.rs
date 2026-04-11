@@ -114,10 +114,7 @@ impl<'a> IocChecker<'a> {
             id: Uuid::new_v4(),
             severity: Severity::High,
             kind: "ioc_url_match".into(),
-            message: format!(
-                "Access to known malicious URL: {} ({})",
-                url, entry.source,
-            ),
+            message: format!("Access to known malicious URL: {} ({})", url, entry.source,),
             occurred_at: Utc::now(),
             metadata: meta,
             rule_id: Some("IOC-1004".into()),
@@ -128,8 +125,8 @@ impl<'a> IocChecker<'a> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::{IocEntry, IocType};
+    use super::*;
 
     #[test]
     fn test_hash_match_produces_alert() {

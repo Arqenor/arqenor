@@ -1,6 +1,6 @@
 use anyhow::Result;
-use clap::Args;
 use arqenor_platform::{new_persistence_detector, new_process_monitor};
+use clap::Args;
 
 #[derive(Args)]
 pub struct ScanArgs {
@@ -20,13 +20,13 @@ pub struct ScanArgs {
 pub async fn run(args: ScanArgs) -> Result<()> {
     if args.host {
         println!("[ PROCESSES ]");
-        let monitor  = new_process_monitor();
+        let monitor = new_process_monitor();
         let snapshot = monitor.snapshot().await?;
 
         if args.json {
             println!("{}", serde_json::to_string_pretty(&snapshot)?);
         } else {
-            println!("{:<8} {:<8} {:<35} {}", "PID", "PPID", "NAME", "PATH");
+            println!("{:<8} {:<8} {:<35} PATH", "PID", "PPID", "NAME");
             println!("{}", "-".repeat(90));
             for p in &snapshot {
                 println!(
@@ -44,18 +44,16 @@ pub async fn run(args: ScanArgs) -> Result<()> {
     if args.persistence {
         println!("\n[ PERSISTENCE ]");
         let detector = new_persistence_detector();
-        let entries  = detector.detect().await?;
+        let entries = detector.detect().await?;
 
         if args.json {
             println!("{}", serde_json::to_string_pretty(&entries)?);
+        } else if entries.is_empty() {
+            println!("  No persistence entries found.");
         } else {
-            if entries.is_empty() {
-                println!("  No persistence entries found.");
-            } else {
-                for e in &entries {
-                    println!("  [{:?}] {} → {}", e.kind, e.name, e.command);
-                    println!("    @ {}", e.location);
-                }
+            for e in &entries {
+                println!("  [{:?}] {} → {}", e.kind, e.name, e.command);
+                println!("    @ {}", e.location);
             }
         }
     }

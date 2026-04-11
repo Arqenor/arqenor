@@ -1,9 +1,9 @@
-use async_trait::async_trait;
 use arqenor_core::{
     error::ArqenorError,
     models::persistence::{PersistenceEntry, PersistenceKind},
     traits::persistence::PersistenceDetector,
 };
+use async_trait::async_trait;
 use std::{fs, path::Path};
 
 #[cfg(target_os = "macos")]
@@ -20,10 +20,13 @@ impl MacosPersistenceDetector {
 // ── constants ────────────────────────────────────────────────────────────────
 
 const LAUNCH_DIRS: &[(&str, PersistenceKind)] = &[
-    ("/Library/LaunchDaemons",        PersistenceKind::LaunchDaemon),
-    ("/Library/LaunchAgents",         PersistenceKind::LaunchAgent),
-    ("/System/Library/LaunchDaemons", PersistenceKind::LaunchDaemon),
-    ("/System/Library/LaunchAgents",  PersistenceKind::LaunchAgent),
+    ("/Library/LaunchDaemons", PersistenceKind::LaunchDaemon),
+    ("/Library/LaunchAgents", PersistenceKind::LaunchAgent),
+    (
+        "/System/Library/LaunchDaemons",
+        PersistenceKind::LaunchDaemon,
+    ),
+    ("/System/Library/LaunchAgents", PersistenceKind::LaunchAgent),
 ];
 
 /// Authorization-plugin bundles shipped with macOS or common Apple frameworks.
@@ -108,7 +111,10 @@ fn plist_context_flags(path: &Path) -> String {
             }
         }
     }
-    if let Some(interval) = dict.get("StartInterval").and_then(|v| v.as_signed_integer()) {
+    if let Some(interval) = dict
+        .get("StartInterval")
+        .and_then(|v| v.as_signed_integer())
+    {
         flags.push(format!("StartInterval={interval}s"));
     }
 
@@ -153,11 +159,11 @@ fn detect_launch_items(entries: &mut Vec<PersistenceEntry>) {
             let display_name = format!("{file_name}{context}");
 
             entries.push(PersistenceEntry {
-                kind:     kind.clone(),
-                name:     display_name,
+                kind: kind.clone(),
+                name: display_name,
                 command,
                 location: file_path.to_string_lossy().into_owned(),
-                is_new:   false,
+                is_new: false,
             });
         }
     }
@@ -196,11 +202,11 @@ fn detect_login_items(entries: &mut Vec<PersistenceEntry>) {
                 .unwrap_or_else(|_| "modification time unavailable".into());
 
             entries.push(PersistenceEntry {
-                kind:     PersistenceKind::Unknown("LoginItem".into()),
-                name:     format!("backgrounditems.btm ({mod_time})"),
-                command:  String::new(),
+                kind: PersistenceKind::Unknown("LoginItem".into()),
+                name: format!("backgrounditems.btm ({mod_time})"),
+                command: String::new(),
                 location: btm_path,
-                is_new:   false,
+                is_new: false,
             });
         }
     }
@@ -213,11 +219,11 @@ fn detect_login_items(entries: &mut Vec<PersistenceEntry>) {
                 let name = de.file_name().to_string_lossy().into_owned();
                 if name.starts_with("disabled.") && name.ends_with(".plist") {
                     entries.push(PersistenceEntry {
-                        kind:     PersistenceKind::Unknown("LoginItem".into()),
-                        name:     format!("disabled-services: {name}"),
-                        command:  String::new(),
+                        kind: PersistenceKind::Unknown("LoginItem".into()),
+                        name: format!("disabled-services: {name}"),
+                        command: String::new(),
                         location: de.path().to_string_lossy().into_owned(),
-                        is_new:   false,
+                        is_new: false,
                     });
                 }
             }
@@ -234,10 +240,7 @@ fn detect_login_items(entries: &mut Vec<PersistenceEntry>) {
 /// On macOS the per-user crontab spool lives under `/usr/lib/cron/tabs/`
 /// (or `/var/at/tabs/` on some versions).  Each file is named after the user.
 fn detect_cron_tabs(entries: &mut Vec<PersistenceEntry>) {
-    const CRON_SPOOL_DIRS: &[&str] = &[
-        "/usr/lib/cron/tabs",
-        "/var/at/tabs",
-    ];
+    const CRON_SPOOL_DIRS: &[&str] = &["/usr/lib/cron/tabs", "/var/at/tabs"];
 
     for spool in CRON_SPOOL_DIRS {
         let spool_path = Path::new(spool);
@@ -257,11 +260,11 @@ fn detect_cron_tabs(entries: &mut Vec<PersistenceEntry>) {
                     .count();
 
                 entries.push(PersistenceEntry {
-                    kind:     PersistenceKind::Cron,
-                    name:     format!("crontab user={username} ({line_count} entries)"),
-                    command:  String::new(),
+                    kind: PersistenceKind::Cron,
+                    name: format!("crontab user={username} ({line_count} entries)"),
+                    command: String::new(),
                     location: de.path().to_string_lossy().into_owned(),
-                    is_new:   false,
+                    is_new: false,
                 });
             }
         }
@@ -280,11 +283,11 @@ fn detect_cron_tabs(entries: &mut Vec<PersistenceEntry>) {
             .count();
 
         entries.push(PersistenceEntry {
-            kind:     PersistenceKind::Cron,
-            name:     format!("/etc/crontab ({line_count} entries)"),
-            command:  String::new(),
+            kind: PersistenceKind::Cron,
+            name: format!("/etc/crontab ({line_count} entries)"),
+            command: String::new(),
             location: "/etc/crontab".into(),
-            is_new:   false,
+            is_new: false,
         });
     }
 }
@@ -318,11 +321,11 @@ fn detect_authorization_plugins(entries: &mut Vec<PersistenceEntry>) {
         }
 
         entries.push(PersistenceEntry {
-            kind:     PersistenceKind::Unknown("AuthorizationPlugin".into()),
-            name:     name,
-            command:  String::new(),
+            kind: PersistenceKind::Unknown("AuthorizationPlugin".into()),
+            name: name,
+            command: String::new(),
             location: de.path().to_string_lossy().into_owned(),
-            is_new:   false,
+            is_new: false,
         });
     }
 }
@@ -384,11 +387,11 @@ fn detect_periodic_scripts(entries: &mut Vec<PersistenceEntry>) {
                 .unwrap_or_default();
 
             entries.push(PersistenceEntry {
-                kind:     PersistenceKind::Cron,
-                name:     format!("periodic/{period}: {file_name}"),
-                command:  String::new(),
+                kind: PersistenceKind::Cron,
+                name: format!("periodic/{period}: {file_name}"),
+                command: String::new(),
                 location: file_path.to_string_lossy().into_owned(),
-                is_new:   false,
+                is_new: false,
             });
         }
     }
@@ -411,11 +414,11 @@ fn detect_dylib_hijacking(entries: &mut Vec<PersistenceEntry>) {
     if let Ok(val) = std::env::var("DYLD_INSERT_LIBRARIES") {
         if !val.is_empty() {
             entries.push(PersistenceEntry {
-                kind:     PersistenceKind::Unknown("DylibHijack".into()),
-                name:     "DYLD_INSERT_LIBRARIES".into(),
-                command:  val,
+                kind: PersistenceKind::Unknown("DylibHijack".into()),
+                name: "DYLD_INSERT_LIBRARIES".into(),
+                command: val,
                 location: "environment".into(),
-                is_new:   false,
+                is_new: false,
             });
         }
     }
@@ -432,11 +435,11 @@ fn detect_dylib_hijacking(entries: &mut Vec<PersistenceEntry>) {
             // Flag any line that references a DYLD_ variable
             if trimmed.contains("DYLD_") {
                 entries.push(PersistenceEntry {
-                    kind:     PersistenceKind::Unknown("DylibHijack".into()),
-                    name:     format!("launchd.conf DYLD entry"),
-                    command:  trimmed.to_owned(),
+                    kind: PersistenceKind::Unknown("DylibHijack".into()),
+                    name: format!("launchd.conf DYLD entry"),
+                    command: trimmed.to_owned(),
                     location: "/etc/launchd.conf".into(),
-                    is_new:   false,
+                    is_new: false,
                 });
             }
         }
@@ -450,12 +453,12 @@ impl PersistenceDetector for MacosPersistenceDetector {
     async fn detect(&self) -> Result<Vec<PersistenceEntry>, ArqenorError> {
         let mut entries = Vec::new();
 
-        detect_launch_items(&mut entries);           // LaunchDaemons/Agents — T1543.004
-        detect_login_items(&mut entries);            // BTM login items      — T1547.015
-        detect_cron_tabs(&mut entries);              // crontab files        — T1053.003
-        detect_authorization_plugins(&mut entries);  // SecurityAgent plugins — T1547.002
-        detect_periodic_scripts(&mut entries);       // periodic(8) scripts  — T1053.003
-        detect_dylib_hijacking(&mut entries);        // DYLD injection       — T1574.004
+        detect_launch_items(&mut entries); // LaunchDaemons/Agents — T1543.004
+        detect_login_items(&mut entries); // BTM login items      — T1547.015
+        detect_cron_tabs(&mut entries); // crontab files        — T1053.003
+        detect_authorization_plugins(&mut entries); // SecurityAgent plugins — T1547.002
+        detect_periodic_scripts(&mut entries); // periodic(8) scripts  — T1053.003
+        detect_dylib_hijacking(&mut entries); // DYLD injection       — T1574.004
 
         Ok(entries)
     }
@@ -467,7 +470,11 @@ impl PersistenceDetector for MacosPersistenceDetector {
         let current = self.detect().await?;
         Ok(current
             .into_iter()
-            .filter(|e| !baseline.iter().any(|b| b.name == e.name && b.location == e.location))
+            .filter(|e| {
+                !baseline
+                    .iter()
+                    .any(|b| b.name == e.name && b.location == e.location)
+            })
             .map(|mut e| {
                 e.is_new = true;
                 e

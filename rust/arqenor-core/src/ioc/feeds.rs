@@ -31,13 +31,16 @@ impl std::fmt::Display for IocFeedError {
 
 impl std::error::Error for IocFeedError {}
 impl From<reqwest::Error> for IocFeedError {
-    fn from(e: reqwest::Error) -> Self { Self::Http(e) }
+    fn from(e: reqwest::Error) -> Self {
+        Self::Http(e)
+    }
 }
 
 // ── Feed URLs ────────────────────────────────────────────────────────────────
 
 const MALWARE_BAZAAR_URL: &str = "https://bazaar.abuse.ch/export/csv/recent/";
-const FEODO_TRACKER_URL: &str = "https://feodotracker.abuse.ch/downloads/ipblocklist_recommended.txt";
+const FEODO_TRACKER_URL: &str =
+    "https://feodotracker.abuse.ch/downloads/ipblocklist_recommended.txt";
 const URLHAUS_URL: &str = "https://urlhaus.abuse.ch/downloads/csv_recent/";
 const THREATFOX_URL: &str = "https://threatfox.abuse.ch/export/csv/recent/";
 
@@ -67,10 +70,7 @@ pub async fn fetch_malware_bazaar(db: &mut IocDatabase) -> Result<usize, IocFeed
             continue;
         }
         let tags_raw = cols.get(14).unwrap_or(&"").trim().trim_matches('"');
-        let tags: Vec<String> = tags_raw
-            .split_whitespace()
-            .map(|t| t.to_string())
-            .collect();
+        let tags: Vec<String> = tags_raw.split_whitespace().map(|t| t.to_string()).collect();
 
         db.add(IocEntry {
             ioc_type: IocType::Sha256Hash,
@@ -306,9 +306,18 @@ mod tests {
 
     #[test]
     fn test_extract_domain() {
-        assert_eq!(extract_domain("https://evil.com/path"), Some("evil.com".into()));
-        assert_eq!(extract_domain("http://1.2.3.4:8080/mal"), Some("1.2.3.4".into()));
-        assert_eq!(extract_domain("ftp://files.bad.org"), Some("files.bad.org".into()));
+        assert_eq!(
+            extract_domain("https://evil.com/path"),
+            Some("evil.com".into())
+        );
+        assert_eq!(
+            extract_domain("http://1.2.3.4:8080/mal"),
+            Some("1.2.3.4".into())
+        );
+        assert_eq!(
+            extract_domain("ftp://files.bad.org"),
+            Some("files.bad.org".into())
+        );
         assert_eq!(extract_domain("not a url"), None);
     }
 }

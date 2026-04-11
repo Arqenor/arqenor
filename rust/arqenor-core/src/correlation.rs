@@ -29,10 +29,10 @@ const COMPLETED_RETENTION_SECS: i64 = 24 * 60 * 60;
 fn alert_score(alert: &Alert) -> u32 {
     let base = match alert.severity {
         Severity::Critical => 50,
-        Severity::High     => 30,
-        Severity::Medium   => 15,
-        Severity::Low      => 5,
-        Severity::Info     => 1,
+        Severity::High => 30,
+        Severity::Medium => 15,
+        Severity::Low => 5,
+        Severity::Info => 1,
     };
 
     let multiplier = match alert.attack_id.as_deref() {
@@ -101,10 +101,10 @@ fn build_summary(incident: &Incident) -> String {
 
     let sev_label = match incident.severity {
         Severity::Critical => "CRITICAL",
-        Severity::High     => "HIGH",
-        Severity::Medium   => "MEDIUM",
-        Severity::Low      => "LOW",
-        Severity::Info     => "INFO",
+        Severity::High => "HIGH",
+        Severity::Medium => "MEDIUM",
+        Severity::Low => "LOW",
+        Severity::Info => "INFO",
     };
 
     let mut s = format!(
@@ -118,7 +118,10 @@ fn build_summary(incident: &Incident) -> String {
     if truncated {
         s.push_str(", ...");
     }
-    s.push_str(&format!(". Incident score: {} ({}).", incident.score, sev_label));
+    s.push_str(&format!(
+        ". Incident score: {} ({}).",
+        incident.score, sev_label
+    ));
     s
 }
 
@@ -151,8 +154,8 @@ fn orphan_key(alert: &Alert) -> u64 {
 ///
 /// Thread safety: wrap in `Arc<Mutex<CorrelationEngine>>` at the call site.
 pub struct CorrelationEngine {
-    active:    HashMap<u32, Incident>,
-    orphan:    HashMap<u64, Incident>,
+    active: HashMap<u32, Incident>,
+    orphan: HashMap<u64, Incident>,
     pid_alias: HashMap<u32, u32>,
     completed: Vec<Incident>,
     retention: Duration,
@@ -161,8 +164,8 @@ pub struct CorrelationEngine {
 impl CorrelationEngine {
     pub fn new() -> Self {
         Self {
-            active:    HashMap::new(),
-            orphan:    HashMap::new(),
+            active: HashMap::new(),
+            orphan: HashMap::new(),
             pid_alias: HashMap::new(),
             completed: Vec::new(),
             retention: Duration::seconds(COMPLETED_RETENTION_SECS),
@@ -314,7 +317,8 @@ impl CorrelationEngine {
         }
 
         self.completed.extend(flushed.clone());
-        self.completed.retain(|inc| now - inc.last_seen < self.retention);
+        self.completed
+            .retain(|inc| now - inc.last_seen < self.retention);
 
         flushed
     }
@@ -331,7 +335,9 @@ impl CorrelationEngine {
 }
 
 impl Default for CorrelationEngine {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 #[cfg(test)]

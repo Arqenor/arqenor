@@ -70,7 +70,11 @@ pub fn analyze_beaconing(flows: &[FlowRecord]) -> Vec<BeaconScore> {
     }
 
     // Sort by score descending.
-    scores.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+    scores.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     scores
 }
 
@@ -85,10 +89,7 @@ pub fn beacon_alerts(scores: &[BeaconScore], threshold: f64) -> Vec<Alert> {
             metadata.insert("dst_port".into(), s.flow.dst_port.to_string());
             metadata.insert("proto".into(), s.flow.proto.clone());
             metadata.insert("score".into(), format!("{:.2}", s.score));
-            metadata.insert(
-                "cv".into(),
-                format!("{:.2}", s.coefficient_of_variation),
-            );
+            metadata.insert("cv".into(), format!("{:.2}", s.coefficient_of_variation));
 
             Alert {
                 id: Uuid::new_v4(),
@@ -96,10 +97,7 @@ pub fn beacon_alerts(scores: &[BeaconScore], threshold: f64) -> Vec<Alert> {
                 kind: "c2_beacon".into(),
                 message: format!(
                     "Potential C2 beaconing: {}:{} \u{2014} {} connections, CV={:.2}",
-                    s.flow.dst_ip,
-                    s.flow.dst_port,
-                    s.connection_count,
-                    s.coefficient_of_variation,
+                    s.flow.dst_ip, s.flow.dst_port, s.connection_count, s.coefficient_of_variation,
                 ),
                 occurred_at: Utc::now(),
                 metadata,
@@ -275,10 +273,7 @@ pub fn dns_tunneling_alerts(scores: &[DnsAnomalyScore], threshold: f64) -> Vec<A
             let mut metadata = HashMap::new();
             metadata.insert("domain".into(), s.domain.clone());
             metadata.insert("query_count".into(), s.query_count.to_string());
-            metadata.insert(
-                "unique_subdomains".into(),
-                s.unique_subdomains.to_string(),
-            );
+            metadata.insert("unique_subdomains".into(), s.unique_subdomains.to_string());
             metadata.insert(
                 "tunneling_score".into(),
                 format!("{:.2}", s.tunneling_score),

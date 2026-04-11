@@ -56,11 +56,11 @@ use uuid::Uuid;
 /// A file-path based detection rule.
 #[derive(Debug, Clone)]
 pub struct SensitivePathRule {
-    pub id:        &'static str,
-    pub pattern:   Pattern,
-    pub severity:  Severity,
+    pub id: &'static str,
+    pub pattern: Pattern,
+    pub severity: Severity,
     pub attack_id: &'static str,
-    pub title:     &'static str,
+    pub title: &'static str,
 }
 
 /// File-path rules that ship out of the box.
@@ -68,56 +68,65 @@ fn default_sensitive_path_rules() -> Vec<SensitivePathRule> {
     vec![
         // Windows
         SensitivePathRule {
-            id: "SENT-F001", attack_id: "T1547.001",
+            id: "SENT-F001",
+            attack_id: "T1547.001",
             severity: Severity::High,
             title: "File Dropped in Startup Folder",
             pattern: Pattern::new("*\\Startup\\*"),
         },
         SensitivePathRule {
-            id: "SENT-F002", attack_id: "T1565.001",
+            id: "SENT-F002",
+            attack_id: "T1565.001",
             severity: Severity::Critical,
             title: "Hosts File Modified",
             pattern: Pattern::new("*\\drivers\\etc\\hosts"),
         },
         SensitivePathRule {
-            id: "SENT-F003", attack_id: "T1003",
+            id: "SENT-F003",
+            attack_id: "T1003",
             severity: Severity::Critical,
             title: "LSASS Dump File Detected",
             pattern: Pattern::new("*lsass*.dmp"),
         },
         SensitivePathRule {
-            id: "SENT-F004", attack_id: "T1059.001",
+            id: "SENT-F004",
+            attack_id: "T1059.001",
             severity: Severity::High,
             title: "PowerShell Profile Modified",
             pattern: Pattern::new("*\\WindowsPowerShell\\*profile.ps1"),
         },
         // Linux
         SensitivePathRule {
-            id: "SENT-F010", attack_id: "T1556",
+            id: "SENT-F010",
+            attack_id: "T1556",
             severity: Severity::Critical,
             title: "Shadow File Modified",
             pattern: Pattern::new("*/etc/shadow"),
         },
         SensitivePathRule {
-            id: "SENT-F011", attack_id: "T1098",
+            id: "SENT-F011",
+            attack_id: "T1098",
             severity: Severity::High,
             title: "Sudoers Modified",
             pattern: Pattern::new("*/etc/sudoers*"),
         },
         SensitivePathRule {
-            id: "SENT-F012", attack_id: "T1098.004",
+            id: "SENT-F012",
+            attack_id: "T1098.004",
             severity: Severity::High,
             title: "SSH Authorized Keys Modified",
             pattern: Pattern::new("*/.ssh/authorized_keys"),
         },
         SensitivePathRule {
-            id: "SENT-F013", attack_id: "T1543.002",
+            id: "SENT-F013",
+            attack_id: "T1543.002",
             severity: Severity::High,
             title: "Systemd Unit Created/Modified",
             pattern: Pattern::new("*/systemd/system/*.service"),
         },
         SensitivePathRule {
-            id: "SENT-F014", attack_id: "T1053.003",
+            id: "SENT-F014",
+            attack_id: "T1053.003",
             severity: Severity::Medium,
             title: "Cron File Modified",
             pattern: Pattern::new("*/cron*"),
@@ -156,18 +165,18 @@ impl Default for PipelineConfig {
 #[derive(Debug, Default)]
 pub struct PipelineStats {
     pub process_events: AtomicU64,
-    pub file_events:    AtomicU64,
-    pub conn_events:    AtomicU64,
-    pub alerts_fired:   AtomicU64,
+    pub file_events: AtomicU64,
+    pub conn_events: AtomicU64,
+    pub alerts_fired: AtomicU64,
 }
 
 impl PipelineStats {
     pub fn snapshot(&self) -> PipelineStatsSnapshot {
         PipelineStatsSnapshot {
             process_events: self.process_events.load(Ordering::Relaxed),
-            file_events:    self.file_events.load(Ordering::Relaxed),
-            conn_events:    self.conn_events.load(Ordering::Relaxed),
-            alerts_fired:   self.alerts_fired.load(Ordering::Relaxed),
+            file_events: self.file_events.load(Ordering::Relaxed),
+            conn_events: self.conn_events.load(Ordering::Relaxed),
+            alerts_fired: self.alerts_fired.load(Ordering::Relaxed),
         }
     }
 }
@@ -175,9 +184,9 @@ impl PipelineStats {
 #[derive(Debug, Clone, Copy)]
 pub struct PipelineStatsSnapshot {
     pub process_events: u64,
-    pub file_events:    u64,
-    pub conn_events:    u64,
-    pub alerts_fired:   u64,
+    pub file_events: u64,
+    pub conn_events: u64,
+    pub alerts_fired: u64,
 }
 
 // ── Detection pipeline ──────────────────────────────────────────────────────
@@ -188,24 +197,24 @@ pub struct PipelineStatsSnapshot {
 /// inside a `tokio::spawn`.  The pipeline exits when all input channels are
 /// closed or `alert_tx` is dropped.
 pub struct DetectionPipeline {
-    config:      PipelineConfig,
-    process_rx:  Receiver<ProcessEvent>,
-    file_rx:     Receiver<FileEvent>,
-    conn_rx:     Receiver<ConnectionInfo>,
+    config: PipelineConfig,
+    process_rx: Receiver<ProcessEvent>,
+    file_rx: Receiver<FileEvent>,
+    conn_rx: Receiver<ConnectionInfo>,
     /// Receives externally-generated alerts (e.g. from host scan tasks).
-    scan_rx:     Receiver<Alert>,
-    alert_tx:    Sender<Alert>,
+    scan_rx: Receiver<Alert>,
+    alert_tx: Sender<Alert>,
     incident_tx: Option<Sender<Incident>>,
-    stats:       Arc<PipelineStats>,
+    stats: Arc<PipelineStats>,
     correlation: Mutex<CorrelationEngine>,
 }
 
 impl DetectionPipeline {
     pub fn new(
-        config:     PipelineConfig,
+        config: PipelineConfig,
         process_rx: Receiver<ProcessEvent>,
-        file_rx:    Receiver<FileEvent>,
-        alert_tx:   Sender<Alert>,
+        file_rx: Receiver<FileEvent>,
+        alert_tx: Sender<Alert>,
     ) -> Self {
         // Create dummy channels for optional inputs.
         let (_dummy_conn, conn_rx) = mpsc::channel::<ConnectionInfo>(1);
@@ -229,11 +238,11 @@ impl DetectionPipeline {
     /// Create a pipeline with an additional connection event stream for
     /// network-based detection (C2 beaconing, DNS tunneling, DGA).
     pub fn with_connections(
-        config:     PipelineConfig,
+        config: PipelineConfig,
         process_rx: Receiver<ProcessEvent>,
-        file_rx:    Receiver<FileEvent>,
-        conn_rx:    Receiver<ConnectionInfo>,
-        alert_tx:   Sender<Alert>,
+        file_rx: Receiver<FileEvent>,
+        conn_rx: Receiver<ConnectionInfo>,
+        alert_tx: Sender<Alert>,
     ) -> Self {
         let (_dummy_scan, scan_rx) = mpsc::channel::<Alert>(1);
         drop(_dummy_scan);
@@ -281,9 +290,9 @@ impl DetectionPipeline {
 
         // Track which input channels are still open.
         let mut process_open = true;
-        let mut file_open    = true;
-        let mut conn_open    = true;
-        let mut scan_open    = true;
+        let mut file_open = true;
+        let mut conn_open = true;
+        let mut scan_open = true;
 
         loop {
             // Exit when all event channels have closed.
@@ -352,9 +361,9 @@ impl DetectionPipeline {
         let snap = self.stats.snapshot();
         tracing::info!(
             process_events = snap.process_events,
-            file_events    = snap.file_events,
-            conn_events    = snap.conn_events,
-            alerts_fired   = snap.alerts_fired,
+            file_events = snap.file_events,
+            conn_events = snap.conn_events,
+            alerts_fired = snap.alerts_fired,
             "detection pipeline stopped"
         );
     }
@@ -370,10 +379,10 @@ impl DetectionPipeline {
 
         // ── LOLBin / built-in rules ────────────────────────────────────
         let engine_evt = engine::ProcessEvent {
-            pid:          evt.process.pid,
-            image:        image.clone(),
-            name:         evt.process.name.clone(),
-            cmdline:      cmdline.clone(),
+            pid: evt.process.pid,
+            image: image.clone(),
+            name: evt.process.name.clone(),
+            cmdline: cmdline.clone(),
             parent_image: None,
         };
 
@@ -425,10 +434,10 @@ impl DetectionPipeline {
         }
 
         let kind_str = match evt.kind {
-            FileEventKind::Created  => "created",
+            FileEventKind::Created => "created",
             FileEventKind::Modified => "modified",
-            FileEventKind::Renamed  => "renamed",
-            FileEventKind::Deleted  => "deleted",
+            FileEventKind::Renamed => "renamed",
+            FileEventKind::Deleted => "deleted",
         };
 
         // ── Sensitive path rules ───────────────────────────────────────
@@ -442,14 +451,14 @@ impl DetectionPipeline {
                 }
 
                 let alert = Alert {
-                    id:          Uuid::new_v4(),
-                    severity:    rule.severity.clone(),
-                    kind:        "file_rule".into(),
-                    message:     format!("{} — {} ({})", rule.title, evt.path, kind_str),
+                    id: Uuid::new_v4(),
+                    severity: rule.severity.clone(),
+                    kind: "file_rule".into(),
+                    message: format!("{} — {} ({})", rule.title, evt.path, kind_str),
                     occurred_at: Utc::now(),
                     metadata,
-                    rule_id:     Some(rule.id.into()),
-                    attack_id:   Some(rule.attack_id.into()),
+                    rule_id: Some(rule.id.into()),
+                    attack_id: Some(rule.attack_id.into()),
                 };
 
                 if !self.emit_alert(alert).await {
@@ -642,10 +651,7 @@ impl DetectionPipeline {
     /// When `rules::network` becomes available the pipeline will delegate to
     /// `analyze_beaconing` / `beacon_alerts`. Until then a lightweight
     /// coefficient-of-variation check is used inline.
-    async fn run_network_analysis(
-        &self,
-        flow_table: &mut HashMap<FlowKey, FlowRecord>,
-    ) {
+    async fn run_network_analysis(&self, flow_table: &mut HashMap<FlowKey, FlowRecord>) {
         if flow_table.is_empty() {
             return;
         }
@@ -670,7 +676,11 @@ impl DetectionPipeline {
                 .windows(2)
                 .filter_map(|pair| {
                     let delta = (pair[1] - pair[0]).num_milliseconds() as f64;
-                    if delta > 0.0 { Some(delta) } else { None }
+                    if delta > 0.0 {
+                        Some(delta)
+                    } else {
+                        None
+                    }
                 })
                 .collect();
 
@@ -684,8 +694,7 @@ impl DetectionPipeline {
                 continue;
             }
 
-            let variance =
-                intervals.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / n;
+            let variance = intervals.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / n;
             let stddev = variance.sqrt();
             let cv = stddev / mean; // coefficient of variation
 
@@ -755,7 +764,11 @@ pub struct DetectionEngine {
 
 impl DetectionEngine {
     pub fn new(rules: Vec<DetectionRule>) -> Self {
-        Self { rules, sigma_rules: Vec::new(), ioc_db: None }
+        Self {
+            rules,
+            sigma_rules: Vec::new(),
+            ioc_db: None,
+        }
     }
 
     /// Add SIGMA rules to the engine.
@@ -817,12 +830,15 @@ fn process_event_to_sigma_fields(evt: &ProcessEvent) -> EventFields {
 fn file_event_to_sigma_fields(evt: &FileEvent) -> EventFields {
     let mut fields = EventFields::new();
     fields.insert("file_path".into(), evt.path.clone());
-    fields.insert("event_type".into(), match evt.kind {
-        FileEventKind::Created  => "created".into(),
-        FileEventKind::Modified => "modified".into(),
-        FileEventKind::Renamed  => "renamed".into(),
-        FileEventKind::Deleted  => "deleted".into(),
-    });
+    fields.insert(
+        "event_type".into(),
+        match evt.kind {
+            FileEventKind::Created => "created".into(),
+            FileEventKind::Modified => "modified".into(),
+            FileEventKind::Renamed => "renamed".into(),
+            FileEventKind::Deleted => "deleted".into(),
+        },
+    );
     if let Some(ref sha) = evt.sha256 {
         fields.insert("sha256".into(), sha.clone());
     }

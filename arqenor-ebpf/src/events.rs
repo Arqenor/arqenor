@@ -57,26 +57,26 @@ pub struct EbpfEvent {
 /// Emitted from the `sys_enter_execve` tracepoint (B2).
 #[repr(C)]
 pub struct ExecveEvent {
-    pub pid:      u32,
-    pub ppid:     u32,
-    pub uid:      u32,
-    pub comm:     [u8; 16],
+    pub pid: u32,
+    pub ppid: u32,
+    pub uid: u32,
+    pub comm: [u8; 16],
     pub filename: [u8; 256],
-    pub argv0:    [u8; 128],
-    pub ts_ns:    u64,
+    pub argv0: [u8; 128],
+    pub ts_ns: u64,
 }
 
 /// Mirrors `struct mmap_event` in `memory.bpf.c`.
 /// Emitted from the `do_mmap` kprobe when prot == RWX and mapping is anonymous (B3).
 #[repr(C)]
 pub struct MmapEvent {
-    pub pid:   u32,
-    pub ppid:  u32,
-    pub uid:   u32,
-    pub comm:  [u8; 16],
-    pub addr:  u64,
-    pub len:   u64,
-    pub prot:  u32, // PROT_READ | PROT_WRITE | PROT_EXEC
+    pub pid: u32,
+    pub ppid: u32,
+    pub uid: u32,
+    pub comm: [u8; 16],
+    pub addr: u64,
+    pub len: u64,
+    pub prot: u32, // PROT_READ | PROT_WRITE | PROT_EXEC
     pub flags: u32,
     pub ts_ns: u64,
 }
@@ -85,34 +85,34 @@ pub struct MmapEvent {
 /// Emitted from the `sys_enter_ptrace` tracepoint when attaching to a foreign PID (B3).
 #[repr(C)]
 pub struct PtraceEvent {
-    pub pid:        u32,
-    pub ppid:       u32,
-    pub uid:        u32,
-    pub comm:       [u8; 16],
-    pub request:    u64, // PTRACE_ATTACH, PTRACE_PEEKDATA, …
+    pub pid: u32,
+    pub ppid: u32,
+    pub uid: u32,
+    pub comm: [u8; 16],
+    pub request: u64, // PTRACE_ATTACH, PTRACE_PEEKDATA, …
     pub target_pid: u64,
-    pub ts_ns:      u64,
+    pub ts_ns: u64,
 }
 
 /// Mirrors `struct creds_event` in `privesc.bpf.c`.
 /// Emitted from the `commit_creds` kprobe on uid → 0 transitions (B5).
 #[repr(C)]
 pub struct CredsEvent {
-    pub pid:     u32,
-    pub ppid:    u32,
+    pub pid: u32,
+    pub ppid: u32,
     pub old_uid: u32,
     pub new_uid: u32,
-    pub comm:    [u8; 16],
-    pub ts_ns:   u64,
+    pub comm: [u8; 16],
+    pub ts_ns: u64,
 }
 
 /// Mirrors `struct module_event` in `rootkit.bpf.c`.
 /// Emitted from the `do_init_module` kprobe on every insmod/modprobe (B6).
 #[repr(C)]
 pub struct ModuleEvent {
-    pub pid:   u32,
-    pub comm:  [u8; 16],
-    pub name:  [u8; 64],
+    pub pid: u32,
+    pub comm: [u8; 16],
+    pub name: [u8; 64],
     pub ts_ns: u64,
 }
 
@@ -120,10 +120,10 @@ pub struct ModuleEvent {
 /// Emitted from the `sys_enter_openat` tracepoint for sensitive paths (B4).
 #[repr(C)]
 pub struct FileWriteEvent {
-    pub pid:      u32,
-    pub ppid:     u32,
-    pub uid:      u32,
-    pub comm:     [u8; 16],
+    pub pid: u32,
+    pub ppid: u32,
+    pub uid: u32,
+    pub comm: [u8; 16],
     pub filename: [u8; 256],
-    pub ts_ns:    u64,
+    pub ts_ns: u64,
 }

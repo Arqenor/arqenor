@@ -14,12 +14,12 @@ pub enum Severity {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Alert {
-    pub id:          Uuid,
-    pub severity:    Severity,
-    pub kind:        String,
-    pub message:     String,
+    pub id: Uuid,
+    pub severity: Severity,
+    pub kind: String,
+    pub message: String,
     pub occurred_at: DateTime<Utc>,
-    pub metadata:    HashMap<String, String>,
-    pub rule_id:     Option<String>,
-    pub attack_id:   Option<String>,
+    pub metadata: HashMap<String, String>,
+    pub rule_id: Option<String>,
+    pub attack_id: Option<String>,
 }

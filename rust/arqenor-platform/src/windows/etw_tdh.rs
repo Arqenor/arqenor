@@ -16,8 +16,8 @@ use std::collections::HashMap;
 use windows::{
     core::PCWSTR,
     Win32::System::Diagnostics::Etw::{
-        EVENT_PROPERTY_INFO, EVENT_RECORD, PROPERTY_DATA_DESCRIPTOR, TRACE_EVENT_INFO,
-        TdhGetEventInformation, TdhGetProperty, TdhGetPropertySize,
+        TdhGetEventInformation, TdhGetProperty, TdhGetPropertySize, EVENT_PROPERTY_INFO,
+        EVENT_RECORD, PROPERTY_DATA_DESCRIPTOR, TRACE_EVENT_INFO,
     },
 };
 
@@ -28,13 +28,15 @@ const ERROR_INSUFFICIENT_BUFFER: u32 = 122;
 
 /// Parse ETW event properties via TDH.
 ///
-/// The `record` pointer is only valid during the ETW callback — call
-/// immediately inside `event_record_callback`.
-///
 /// Returns an empty map on any failure (non-fatal).
-pub fn parse_event_properties(record: *const EVENT_RECORD) -> HashMap<String, String> {
-    // SAFETY: caller guarantees `record` is valid for the duration of the ETW
-    // callback.  All unsafe blocks below are bounded to that lifetime.
+///
+/// # Safety
+///
+/// `record` must be a valid `EVENT_RECORD` pointer that remains valid for
+/// the duration of this call — that is, the caller must be inside the ETW
+/// `event_record_callback` where the ETW runtime owns the pointer.
+pub unsafe fn parse_event_properties(record: *const EVENT_RECORD) -> HashMap<String, String> {
+    // SAFETY: caller contract — `record` is valid for the duration of this call.
     unsafe { parse_impl(record) }.unwrap_or_default()
 }
 
@@ -43,9 +45,7 @@ pub fn parse_event_properties(record: *const EVENT_RECORD) -> HashMap<String, St
 unsafe fn parse_impl(record: *const EVENT_RECORD) -> Option<HashMap<String, String>> {
     // ── Pass 1: determine required buffer size ────────────────────────────────
     let mut buf_size: u32 = 0;
-    let rc = unsafe {
-        TdhGetEventInformation(record, None, None, &mut buf_size)
-    };
+    let rc = unsafe { TdhGetEventInformation(record, None, None, &mut buf_size) };
 
     if rc != ERROR_INSUFFICIENT_BUFFER && rc != 0 {
         // Provider schema not available (e.g., WPP, MOF without schema in registry)
@@ -83,8 +83,9 @@ unsafe fn parse_impl(record: *const EVENT_RECORD) -> Option<HashMap<String, Stri
 
     // The EventPropertyInfoArray is a flexible array member — index past the
     // first element using a raw pointer.
-    let prop_array_ptr: *const EVENT_PROPERTY_INFO =
-        &info.EventPropertyInfoArray as *const [EVENT_PROPERTY_INFO; 1] as *const EVENT_PROPERTY_INFO;
+    let prop_array_ptr: *const EVENT_PROPERTY_INFO = &info.EventPropertyInfoArray
+        as *const [EVENT_PROPERTY_INFO; 1]
+        as *const EVENT_PROPERTY_INFO;
 
     let mut props = HashMap::with_capacity(property_count as usize);
 
@@ -123,9 +124,7 @@ fn read_property_value(
 
     // ── Size query ────────────────────────────────────────────────────────────
     let mut data_size: u32 = 0;
-    let rc = unsafe {
-        TdhGetPropertySize(record, None, &[desc], &mut data_size)
-    };
+    let rc = unsafe { TdhGetPropertySize(record, None, &[desc], &mut data_size) };
 
     if rc != 0 || data_size == 0 {
         return String::new();
@@ -133,9 +132,7 @@ fn read_property_value(
 
     // ── Data retrieval ────────────────────────────────────────────────────────
     let mut data = vec![0u8; data_size as usize];
-    let rc = unsafe {
-        TdhGetProperty(record, None, &[desc], &mut data)
-    };
+    let rc = unsafe { TdhGetProperty(record, None, &[desc], &mut data) };
 
     if rc != 0 {
         return String::new();
@@ -160,9 +157,17 @@ fn format_value(data: &[u8], intype: u16) -> String {
             .trim_end_matches('\0')
             .to_owned(),
         // TDH_INTYPE_INT8
-        3 => data.first().copied().map(|b| (b as i8).to_string()).unwrap_or_default(),
+        3 => data
+            .first()
+            .copied()
+            .map(|b| (b as i8).to_string())
+            .unwrap_or_default(),
         // TDH_INTYPE_UINT8
-        4 => data.first().copied().map(|b| b.to_string()).unwrap_or_default(),
+        4 => data
+            .first()
+            .copied()
+            .map(|b| b.to_string())
+            .unwrap_or_default(),
         // TDH_INTYPE_INT16
         5 => read_le_i16(data).to_string(),
         // TDH_INTYPE_UINT16
@@ -187,8 +192,7 @@ fn format_value(data: &[u8], intype: u16) -> String {
         13 => {
             if data.len() >= 8 {
                 f64::from_le_bytes([
-                    data[0], data[1], data[2], data[3],
-                    data[4], data[5], data[6], data[7],
+                    data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7],
                 ])
                 .to_string()
             } else {
@@ -197,7 +201,11 @@ fn format_value(data: &[u8], intype: u16) -> String {
         }
         // TDH_INTYPE_BOOLEAN
         14 => {
-            if data.first() == Some(&0) { "false".into() } else { "true".into() }
+            if data.first() == Some(&0) {
+                "false".into()
+            } else {
+                "true".into()
+            }
         }
         // TDH_INTYPE_BINARY / unknown → raw hex
         _ => hex::encode(data),
@@ -229,22 +237,37 @@ fn decode_utf16(data: &[u8]) -> String {
 
 // Numeric LE readers — return 0 on short buffers (non-panicking).
 fn read_le_i16(data: &[u8]) -> i16 {
-    if data.len() >= 2 { i16::from_le_bytes([data[0], data[1]]) } else { 0 }
+    if data.len() >= 2 {
+        i16::from_le_bytes([data[0], data[1]])
+    } else {
+        0
+    }
 }
 fn read_le_u16(data: &[u8]) -> u16 {
-    if data.len() >= 2 { u16::from_le_bytes([data[0], data[1]]) } else { 0 }
+    if data.len() >= 2 {
+        u16::from_le_bytes([data[0], data[1]])
+    } else {
+        0
+    }
 }
 fn read_le_i32(data: &[u8]) -> i32 {
-    if data.len() >= 4 { i32::from_le_bytes([data[0], data[1], data[2], data[3]]) } else { 0 }
+    if data.len() >= 4 {
+        i32::from_le_bytes([data[0], data[1], data[2], data[3]])
+    } else {
+        0
+    }
 }
 fn read_le_u32(data: &[u8]) -> u32 {
-    if data.len() >= 4 { u32::from_le_bytes([data[0], data[1], data[2], data[3]]) } else { 0 }
+    if data.len() >= 4 {
+        u32::from_le_bytes([data[0], data[1], data[2], data[3]])
+    } else {
+        0
+    }
 }
 fn read_le_i64(data: &[u8]) -> i64 {
     if data.len() >= 8 {
         i64::from_le_bytes([
-            data[0], data[1], data[2], data[3],
-            data[4], data[5], data[6], data[7],
+            data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7],
         ])
     } else {
         0
@@ -253,8 +276,7 @@ fn read_le_i64(data: &[u8]) -> i64 {
 fn read_le_u64(data: &[u8]) -> u64 {
     if data.len() >= 8 {
         u64::from_le_bytes([
-            data[0], data[1], data[2], data[3],
-            data[4], data[5], data[6], data[7],
+            data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7],
         ])
     } else {
         0

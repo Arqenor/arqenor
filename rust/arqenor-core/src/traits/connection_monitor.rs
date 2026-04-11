@@ -2,10 +2,7 @@ use async_trait::async_trait;
 use std::collections::HashSet;
 use tokio::sync::mpsc::Sender;
 
-use crate::{
-    error::ArqenorError,
-    models::connection::ConnectionInfo,
-};
+use crate::{error::ArqenorError, models::connection::ConnectionInfo};
 
 /// Unique key for deduplicating connections between polling cycles.
 type ConnKey = (String, Option<String>, u32); // (local_addr, remote_addr, pid)
@@ -60,11 +57,9 @@ pub fn spawn_polling_watch(
                         current.insert(key.clone());
 
                         // Only send connections we haven't seen in the previous cycle.
-                        if !seen.contains(&key) {
-                            if tx.send(conn).await.is_err() {
-                                // Receiver dropped — stop polling.
-                                return;
-                            }
+                        if !seen.contains(&key) && tx.send(conn).await.is_err() {
+                            // Receiver dropped — stop polling.
+                            return;
                         }
                     }
 

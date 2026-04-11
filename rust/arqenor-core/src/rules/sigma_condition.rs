@@ -275,9 +275,10 @@ pub fn parse(input: &str) -> Result<ConditionExpr, ConditionParseError> {
     let expr = parser.parse_expr()?;
     // Ensure we consumed all tokens
     if parser.pos < parser.tokens.len() {
-        return Err(ConditionParseError::UnexpectedToken(
-            format!("{:?}", parser.tokens[parser.pos]),
-        ));
+        return Err(ConditionParseError::UnexpectedToken(format!(
+            "{:?}",
+            parser.tokens[parser.pos]
+        )));
     }
     Ok(expr)
 }
@@ -336,7 +337,9 @@ mod tests {
             expr,
             ConditionExpr::And(
                 Box::new(ConditionExpr::Ref("selection".into())),
-                Box::new(ConditionExpr::Not(Box::new(ConditionExpr::Ref("filter".into())))),
+                Box::new(ConditionExpr::Not(Box::new(ConditionExpr::Ref(
+                    "filter".into()
+                )))),
             )
         );
     }

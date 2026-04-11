@@ -53,29 +53,15 @@ pub enum EsfRawEvent {
         is_platform_binary: bool,
     },
     /// `ES_EVENT_TYPE_NOTIFY_FORK` — a process called `fork(2)`.
-    ProcessFork {
-        child_pid: u32,
-        parent_pid: u32,
-    },
+    ProcessFork { child_pid: u32, parent_pid: u32 },
     /// `ES_EVENT_TYPE_NOTIFY_EXIT` — a process exited.
-    ProcessExit {
-        pid: u32,
-    },
+    ProcessExit { pid: u32 },
     /// `ES_EVENT_TYPE_NOTIFY_CREATE` — a new file was created.
-    FileCreate {
-        path: String,
-        pid: u32,
-    },
+    FileCreate { path: String, pid: u32 },
     /// `ES_EVENT_TYPE_NOTIFY_WRITE` / `ES_EVENT_TYPE_NOTIFY_CLOSE` (modified).
-    FileWrite {
-        path: String,
-        pid: u32,
-    },
+    FileWrite { path: String, pid: u32 },
     /// `ES_EVENT_TYPE_NOTIFY_UNLINK` — a file was deleted.
-    FileDelete {
-        path: String,
-        pid: u32,
-    },
+    FileDelete { path: String, pid: u32 },
     /// `ES_EVENT_TYPE_NOTIFY_RENAME` — a file was renamed/moved.
     FileRename {
         old_path: String,
@@ -83,11 +69,7 @@ pub enum EsfRawEvent {
         pid: u32,
     },
     /// `ES_EVENT_TYPE_NOTIFY_SETMODE` — `chmod(2)` was called.
-    FileChmod {
-        path: String,
-        mode: u32,
-        pid: u32,
-    },
+    FileChmod { path: String, mode: u32, pid: u32 },
     /// `ES_EVENT_TYPE_NOTIFY_SETOWNER` — `chown(2)` was called.
     FileChown {
         path: String,
@@ -97,10 +79,7 @@ pub enum EsfRawEvent {
     },
     /// `ES_EVENT_TYPE_NOTIFY_GET_TASK` — a process obtained the task port of
     /// another process.  Strong indicator of process injection (T1055).
-    GetTask {
-        target_pid: u32,
-        source_pid: u32,
-    },
+    GetTask { target_pid: u32, source_pid: u32 },
 }
 
 // ── Noisy path prefixes to mute ──────────────────────────────────────────────
@@ -179,14 +158,16 @@ pub fn run_esf_loop(tx: SyncSender<EsfRawEvent>) {
     // bounded channel with `try_send` (drop on full buffer).
     let tx_handler = tx.clone();
 
-    let client = match Client::new(move |_client: &mut Client, message: &endpoint_sec::Message| {
-        if let Some(ev) = convert_message(message) {
-            // Non-blocking send: if the consumer is lagging we drop the
-            // event rather than stalling the ESF dispatch queue.  A stalled
-            // callback can cause the ES subsystem to kill our client.
-            let _ = tx_handler.try_send(ev);
-        }
-    }) {
+    let client = match Client::new(
+        move |_client: &mut Client, message: &endpoint_sec::Message| {
+            if let Some(ev) = convert_message(message) {
+                // Non-blocking send: if the consumer is lagging we drop the
+                // event rather than stalling the ESF dispatch queue.  A stalled
+                // callback can cause the ES subsystem to kill our client.
+                let _ = tx_handler.try_send(ev);
+            }
+        },
+    ) {
         Ok(c) => c,
         Err(e) => {
             tracing::error!(
@@ -291,11 +272,7 @@ fn convert_message(message: &endpoint_sec::Message) -> Option<EsfRawEvent> {
             // The `target` is the newly-exec'd process image.
             let target = exec_event.target();
 
-            let path = target
-                .executable()
-                .path()
-                .to_string_lossy()
-                .into_owned();
+            let path = target.executable().path().to_string_lossy().into_owned();
 
             // Collect command-line arguments via the args iterator.
             let args: Vec<String> = exec_event
@@ -382,33 +359,21 @@ fn convert_message(message: &endpoint_sec::Message) -> Option<EsfRawEvent> {
             if !close_event.modified() {
                 return None;
             }
-            let path = close_event
-                .target()
-                .path()
-                .to_string_lossy()
-                .into_owned();
+            let path = close_event.target().path().to_string_lossy().into_owned();
 
             Some(EsfRawEvent::FileWrite { path, pid })
         }
 
         // ── File delete (unlink) ─────────────────────────────────────────
         endpoint_sec::Event::Unlink(ref unlink_event) => {
-            let path = unlink_event
-                .target()
-                .path()
-                .to_string_lossy()
-                .into_owned();
+            let path = unlink_event.target().path().to_string_lossy().into_owned();
 
             Some(EsfRawEvent::FileDelete { path, pid })
         }
 
         // ── File rename ──────────────────────────────────────────────────
         endpoint_sec::Event::Rename(ref rename_event) => {
-            let old_path = rename_event
-                .source()
-                .path()
-                .to_string_lossy()
-                .into_owned();
+            let old_path = rename_event.source().path().to_string_lossy().into_owned();
 
             let new_path = rename_event
                 .destination()
@@ -435,11 +400,7 @@ fn convert_message(message: &endpoint_sec::Message) -> Option<EsfRawEvent> {
 
         // ── File chmod ───────────────────────────────────────────────────
         endpoint_sec::Event::Setmode(ref setmode_event) => {
-            let path = setmode_event
-                .target()
-                .path()
-                .to_string_lossy()
-                .into_owned();
+            let path = setmode_event.target().path().to_string_lossy().into_owned();
 
             let mode = setmode_event.mode() as u32;
 
@@ -457,7 +418,12 @@ fn convert_message(message: &endpoint_sec::Message) -> Option<EsfRawEvent> {
             let uid = setowner_event.uid();
             let gid = setowner_event.gid();
 
-            Some(EsfRawEvent::FileChown { path, uid, gid, pid })
+            Some(EsfRawEvent::FileChown {
+                path,
+                uid,
+                gid,
+                pid,
+            })
         }
 
         // ── Task port access (process injection) ─────────────────────────
@@ -472,9 +438,7 @@ fn convert_message(message: &endpoint_sec::Message) -> Option<EsfRawEvent> {
         // Catch-all for any event type we subscribed to but haven't matched
         // above (defensive — should not happen with our subscription list).
         _ => {
-            tracing::debug!(
-                "unhandled ESF event type in callback",
-            );
+            tracing::debug!("unhandled ESF event type in callback",);
             None
         }
     }

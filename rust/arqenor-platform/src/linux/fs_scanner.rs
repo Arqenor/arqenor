@@ -1,12 +1,12 @@
-use async_trait::async_trait;
-use chrono::Utc;
-use hex::encode;
-use inotify::{EventMask, Inotify, WatchMask};
 use arqenor_core::{
     error::ArqenorError,
     models::file_event::{FileEvent, FileEventKind, FileHash, ScanConfig},
     traits::fs_scanner::FsScanner,
 };
+use async_trait::async_trait;
+use chrono::Utc;
+use hex::encode;
+use inotify::{EventMask, Inotify, WatchMask};
 use sha2::{Digest, Sha256};
 use std::{
     fs,
@@ -39,7 +39,11 @@ impl FsScanner for LinuxFsScanner {
     ) -> Result<Vec<FileEvent>, ArqenorError> {
         let mut events = Vec::new();
         let walker = WalkDir::new(root).follow_links(false);
-        let walker = if config.recursive { walker } else { walker.max_depth(1) };
+        let walker = if config.recursive {
+            walker
+        } else {
+            walker.max_depth(1)
+        };
 
         for entry in walker.into_iter().filter_map(|e| e.ok()) {
             let path = entry.path();
@@ -59,9 +63,9 @@ impl FsScanner for LinuxFsScanner {
                 None
             };
             events.push(FileEvent {
-                id:         Uuid::new_v4(),
-                kind:       FileEventKind::Created,
-                path:       path.to_string_lossy().into_owned(),
+                id: Uuid::new_v4(),
+                kind: FileEventKind::Created,
+                path: path.to_string_lossy().into_owned(),
                 sha256,
                 size,
                 event_time: Utc::now(),
@@ -72,8 +76,8 @@ impl FsScanner for LinuxFsScanner {
 
     async fn hash_file(&self, path: &Path) -> Result<FileHash, ArqenorError> {
         let bytes = fs::read(path)?;
-        let size  = bytes.len() as u64;
-        let hash  = encode(Sha256::digest(&bytes));
+        let size = bytes.len() as u64;
+        let hash = encode(Sha256::digest(&bytes));
         Ok(FileHash { sha256: hash, size })
     }
 
@@ -82,11 +86,7 @@ impl FsScanner for LinuxFsScanner {
     /// Spawns a blocking thread that loops on `read_events_blocking`.
     /// Events are streamed to `tx`; the loop exits when `tx` is dropped or
     /// the watch descriptor becomes invalid.
-    async fn watch_path(
-        &self,
-        root: &Path,
-        tx: Sender<FileEvent>,
-    ) -> Result<(), ArqenorError> {
+    async fn watch_path(&self, root: &Path, tx: Sender<FileEvent>) -> Result<(), ArqenorError> {
         let root = root.to_owned();
         tokio::task::spawn_blocking(move || inotify_watch_loop(root, tx));
         Ok(())
@@ -148,11 +148,11 @@ fn inotify_watch_loop(root: PathBuf, tx: Sender<FileEvent>) {
             };
 
             let file_event = FileEvent {
-                id:         Uuid::new_v4(),
+                id: Uuid::new_v4(),
                 kind,
-                path:       root.join(name).to_string_lossy().into_owned(),
-                sha256:     None,
-                size:       None,
+                path: root.join(name).to_string_lossy().into_owned(),
+                sha256: None,
+                size: None,
                 event_time: Utc::now(),
             };
 

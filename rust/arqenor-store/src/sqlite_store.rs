@@ -1,5 +1,5 @@
-use rusqlite::{Connection, Result as SqlResult};
 use arqenor_core::models::alert::{Alert, Severity};
+use rusqlite::{Connection, Result as SqlResult};
 use serde_json;
 use std::{collections::HashMap, path::Path};
 use thiserror::Error;
@@ -147,21 +147,23 @@ impl SqliteStore {
             "SELECT severity, COUNT(*) FROM alerts GROUP BY severity ORDER BY COUNT(*) DESC",
         )?;
         let rows = stmt
-            .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, u64>(1)?)))?
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, u64>(1)?))
+            })?
             .filter_map(|r| r.ok())
             .collect();
         Ok(rows)
     }
 
     pub fn get_config(&self, key: &str) -> SqlResult<Option<String>> {
-        match self.conn.query_row(
-            "SELECT value FROM config WHERE key = ?1",
-            [key],
-            |row| row.get(0),
-        ) {
-            Ok(v)                                                => Ok(Some(v)),
+        match self
+            .conn
+            .query_row("SELECT value FROM config WHERE key = ?1", [key], |row| {
+                row.get(0)
+            }) {
+            Ok(v) => Ok(Some(v)),
             Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
-            Err(e)                                               => Err(e),
+            Err(e) => Err(e),
         }
     }
 
@@ -184,24 +186,35 @@ impl SqliteStore {
         let alerts = stmt
             .query_map([limit as i64], |row| {
                 Ok((
-                    row.get::<_, String>(0)?,  // id
-                    row.get::<_, String>(1)?,  // severity
-                    row.get::<_, String>(2)?,  // kind
-                    row.get::<_, String>(3)?,  // message
-                    row.get::<_, String>(4)?,  // occurred_at
-                    row.get::<_, String>(5)?,  // metadata JSON
-                    row.get::<_, Option<String>>(6)?,  // rule_id
-                    row.get::<_, Option<String>>(7)?,  // attack_id
+                    row.get::<_, String>(0)?,         // id
+                    row.get::<_, String>(1)?,         // severity
+                    row.get::<_, String>(2)?,         // kind
+                    row.get::<_, String>(3)?,         // message
+                    row.get::<_, String>(4)?,         // occurred_at
+                    row.get::<_, String>(5)?,         // metadata JSON
+                    row.get::<_, Option<String>>(6)?, // rule_id
+                    row.get::<_, Option<String>>(7)?, // attack_id
                 ))
             })?
             .filter_map(|r| r.ok())
             .filter_map(|(id, sev, kind, msg, ts, meta_json, rule_id, attack_id)| {
-                let id         = Uuid::parse_str(&id).ok()?;
-                let severity   = parse_severity(&sev);
+                let id = Uuid::parse_str(&id).ok()?;
+                let severity = parse_severity(&sev);
                 let metadata: HashMap<String, String> =
                     serde_json::from_str(&meta_json).unwrap_or_default();
-                let occurred_at = chrono::DateTime::parse_from_rfc3339(&ts).ok()?.with_timezone(&chrono::Utc);
-                Some(Alert { id, severity, kind, message: msg, occurred_at, metadata, rule_id, attack_id })
+                let occurred_at = chrono::DateTime::parse_from_rfc3339(&ts)
+                    .ok()?
+                    .with_timezone(&chrono::Utc);
+                Some(Alert {
+                    id,
+                    severity,
+                    kind,
+                    message: msg,
+                    occurred_at,
+                    metadata,
+                    rule_id,
+                    attack_id,
+                })
             })
             .collect();
 
@@ -211,11 +224,11 @@ impl SqliteStore {
 
 fn parse_severity(s: &str) -> Severity {
     match s {
-        "Info"     => Severity::Info,
-        "Low"      => Severity::Low,
-        "Medium"   => Severity::Medium,
-        "High"     => Severity::High,
+        "Info" => Severity::Info,
+        "Low" => Severity::Low,
+        "Medium" => Severity::Medium,
+        "High" => Severity::High,
         "Critical" => Severity::Critical,
-        _          => Severity::Info,
+        _ => Severity::Info,
     }
 }

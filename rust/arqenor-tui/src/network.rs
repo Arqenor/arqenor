@@ -8,23 +8,23 @@ use tokio::net::TcpStream;
 
 #[derive(Debug, Clone)]
 pub struct VpnInfo {
-    pub name:    String,   // "Mullvad", "NordVPN", etc.
-    pub tunnel:  String,   // detected tunnel IP or interface name
+    pub name: String,   // "Mullvad", "NordVPN", etc.
+    pub tunnel: String, // detected tunnel IP or interface name
 }
 
 const VPN_PROCESSES: &[(&str, &str)] = &[
     ("mullvad-daemon.exe", "Mullvad VPN"),
-    ("mullvad",            "Mullvad VPN"),
-    ("nordvpnd",           "NordVPN"),
-    ("nordvpn.exe",        "NordVPN"),
-    ("openvpn.exe",        "OpenVPN"),
-    ("openvpn",            "OpenVPN"),
-    ("wireguard.exe",      "WireGuard"),
-    ("wg-quick",           "WireGuard"),
-    ("expressvpn",         "ExpressVPN"),
-    ("expressvpnd",        "ExpressVPN"),
-    ("protonvpn",          "ProtonVPN"),
-    ("surfshark",          "Surfshark"),
+    ("mullvad", "Mullvad VPN"),
+    ("nordvpnd", "NordVPN"),
+    ("nordvpn.exe", "NordVPN"),
+    ("openvpn.exe", "OpenVPN"),
+    ("openvpn", "OpenVPN"),
+    ("wireguard.exe", "WireGuard"),
+    ("wg-quick", "WireGuard"),
+    ("expressvpn", "ExpressVPN"),
+    ("expressvpnd", "ExpressVPN"),
+    ("protonvpn", "ProtonVPN"),
+    ("surfshark", "Surfshark"),
 ];
 
 /// Detect active VPN by checking running process names.
@@ -35,7 +35,10 @@ pub fn detect_vpn(processes: &[String]) -> Option<VpnInfo> {
             if lower.contains(pattern) {
                 // Try to find the tunnel IP
                 let tunnel = get_vpn_tunnel_ip().unwrap_or_else(|| "connected".into());
-                return Some(VpnInfo { name: label.to_string(), tunnel });
+                return Some(VpnInfo {
+                    name: label.to_string(),
+                    tunnel,
+                });
             }
         }
     }
@@ -70,8 +73,7 @@ fn get_vpn_tunnel_ip() -> Option<String> {
 
 // Ports scanned on each live host
 const SCAN_PORTS: &[u16] = &[
-    21, 22, 23, 25, 53, 80, 110, 135, 139, 443, 445,
-    1433, 3306, 3389, 5900, 8080, 8443,
+    21, 22, 23, 25, 53, 80, 110, 135, 139, 443, 445, 1433, 3306, 3389, 5900, 8080, 8443,
 ];
 
 // Ports tried in parallel to decide if a host is alive
@@ -88,9 +90,9 @@ pub enum HostRisk {
 impl HostRisk {
     pub fn label(&self) -> &'static str {
         match self {
-            Self::High   => " HIGH ",
+            Self::High => " HIGH ",
             Self::Medium => " MED  ",
-            Self::Low    => " LOW  ",
+            Self::Low => " LOW  ",
             Self::Normal => "  --  ",
         }
     }
@@ -108,8 +110,8 @@ impl OsGuess {
     pub fn label(&self) -> &'static str {
         match self {
             Self::Windows => "Windows",
-            Self::Linux   => "Linux  ",
-            Self::Router  => "Router ",
+            Self::Linux => "Linux  ",
+            Self::Router => "Router ",
             Self::Unknown => "       ",
         }
     }
@@ -132,15 +134,15 @@ fn guess_os(ports: &[u16]) -> OsGuess {
 
 #[derive(Debug, Clone)]
 pub struct HostInfo {
-    pub ip:    Ipv4Addr,
+    pub ip: Ipv4Addr,
     pub ports: Vec<u16>,
-    pub risk:  HostRisk,
-    pub os:    OsGuess,
+    pub risk: HostRisk,
+    pub os: OsGuess,
 }
 
 fn assess_risk(ports: &[u16]) -> HostRisk {
     if ports.contains(&23) || ports.contains(&5900) {
-        HostRisk::High   // Telnet / VNC
+        HostRisk::High // Telnet / VNC
     } else if ports.contains(&445) || ports.contains(&3389) || ports.contains(&1433) {
         HostRisk::Medium // SMB, RDP, SQL
     } else if ports.contains(&135) || ports.contains(&139) || ports.contains(&21) {
@@ -159,7 +161,9 @@ pub fn get_lan_subnets() -> Vec<[u8; 3]> {
 
     if let Ok(ifaces) = if_addrs::get_if_addrs() {
         for iface in ifaces {
-            if iface.is_loopback() { continue; }
+            if iface.is_loopback() {
+                continue;
+            }
             if let if_addrs::IfAddr::V4(v4) = iface.addr {
                 let ip = v4.ip;
                 if let Some(base) = private_lan_base(ip) {
@@ -194,8 +198,12 @@ fn private_lan_base(ip: Ipv4Addr) -> Option<[u8; 3]> {
     //   WireGuard: 10.0.0.x with /32 mask
     if o[0] == 10 {
         // Skip known VPN ranges
-        if (64..=127).contains(&o[1]) { return None; } // Mullvad
-        if o[1] == 5 || o[1] == 8 { return None; }     // NordVPN common
+        if (64..=127).contains(&o[1]) {
+            return None;
+        } // Mullvad
+        if o[1] == 5 || o[1] == 8 {
+            return None;
+        } // NordVPN common
         return Some([o[0], o[1], o[2]]);
     }
     None
@@ -205,38 +213,48 @@ fn private_lan_base(ip: Ipv4Addr) -> Option<[u8; 3]> {
 
 /// Check if a host is alive by trying ALIVE_PORTS in parallel.
 async fn is_alive(ip: Ipv4Addr) -> bool {
-    let handles: Vec<_> = ALIVE_PORTS.iter().map(|&port| {
-        tokio::spawn(async move {
-            let addr = SocketAddr::new(IpAddr::V4(ip), port);
-            tokio::time::timeout(Duration::from_millis(500), TcpStream::connect(addr))
-                .await
-                .map(|r| r.is_ok())
-                .unwrap_or(false)
+    let handles: Vec<_> = ALIVE_PORTS
+        .iter()
+        .map(|&port| {
+            tokio::spawn(async move {
+                let addr = SocketAddr::new(IpAddr::V4(ip), port);
+                tokio::time::timeout(Duration::from_millis(500), TcpStream::connect(addr))
+                    .await
+                    .map(|r| r.is_ok())
+                    .unwrap_or(false)
+            })
         })
-    }).collect();
+        .collect();
 
     for h in handles {
-        if let Ok(true) = h.await { return true; }
+        if let Ok(true) = h.await {
+            return true;
+        }
     }
     false
 }
 
 /// Scan all SCAN_PORTS on a confirmed-alive host.
 async fn scan_ports(ip: Ipv4Addr) -> Vec<u16> {
-    let handles: Vec<_> = SCAN_PORTS.iter().map(|&port| {
-        tokio::spawn(async move {
-            let addr = SocketAddr::new(IpAddr::V4(ip), port);
-            let ok = tokio::time::timeout(Duration::from_millis(400), TcpStream::connect(addr))
-                .await
-                .map(|r| r.is_ok())
-                .unwrap_or(false);
-            (port, ok)
+    let handles: Vec<_> = SCAN_PORTS
+        .iter()
+        .map(|&port| {
+            tokio::spawn(async move {
+                let addr = SocketAddr::new(IpAddr::V4(ip), port);
+                let ok = tokio::time::timeout(Duration::from_millis(400), TcpStream::connect(addr))
+                    .await
+                    .map(|r| r.is_ok())
+                    .unwrap_or(false);
+                (port, ok)
+            })
         })
-    }).collect();
+        .collect();
 
     let mut open = Vec::new();
     for h in handles {
-        if let Ok((port, true)) = h.await { open.push(port); }
+        if let Ok((port, true)) = h.await {
+            open.push(port);
+        }
     }
     open.sort();
     open
@@ -244,11 +262,18 @@ async fn scan_ports(ip: Ipv4Addr) -> Vec<u16> {
 
 /// Full host scan: alive check then port scan. Returns None if host is down.
 pub async fn scan_host(ip: Ipv4Addr) -> Option<HostInfo> {
-    if !is_alive(ip).await { return None; }
+    if !is_alive(ip).await {
+        return None;
+    }
     let ports = scan_ports(ip).await;
-    let risk  = assess_risk(&ports);
-    let os    = guess_os(&ports);
-    Some(HostInfo { ip, ports, risk, os })
+    let risk = assess_risk(&ports);
+    let os = guess_os(&ports);
+    Some(HostInfo {
+        ip,
+        ports,
+        risk,
+        os,
+    })
 }
 
 /// Scan a full /24 subnet. Results are streamed via the returned channel.
@@ -260,7 +285,7 @@ pub fn scan_subnet(base: [u8; 3]) -> tokio::sync::mpsc::Receiver<HostInfo> {
         let mut join_set = tokio::task::JoinSet::new();
 
         for last in 1u8..=254 {
-            let ip  = Ipv4Addr::new(base[0], base[1], base[2], last);
+            let ip = Ipv4Addr::new(base[0], base[1], base[2], last);
             let tx2 = tx.clone();
             join_set.spawn(async move {
                 if let Some(host) = scan_host(ip).await {

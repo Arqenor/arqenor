@@ -77,19 +77,19 @@ fn parse_lsof_line(line: &str) -> Option<ConnectionInfo> {
     let state = match proto {
         Proto::Udp => ConnState::Other("STATELESS".into()),
         Proto::Tcp => match state_str.to_uppercase().as_str() {
-            "LISTEN"      => ConnState::Listen,
+            "LISTEN" => ConnState::Listen,
             "ESTABLISHED" => ConnState::Established,
-            "TIME_WAIT"   => ConnState::TimeWait,
-            "CLOSE_WAIT"  => ConnState::CloseWait,
-            ""            => ConnState::Other("UNKNOWN".into()),
-            other         => ConnState::Other(other.to_owned()),
+            "TIME_WAIT" => ConnState::TimeWait,
+            "CLOSE_WAIT" => ConnState::CloseWait,
+            "" => ConnState::Other("UNKNOWN".into()),
+            other => ConnState::Other(other.to_owned()),
         },
     };
 
     // Split "local->remote" or just "local".
     let (local_addr, remote_addr) = if let Some((l, r)) = addr_part.split_once("->") {
         // Replace lsof's wildcard "*" with "0.0.0.0".
-        let local  = l.replace('*', "0.0.0.0");
+        let local = l.replace('*', "0.0.0.0");
         let remote = r.replace('*', "0.0.0.0");
         (local, Some(remote))
     } else {
@@ -119,10 +119,7 @@ impl ConnectionMonitor for MacosConnectionMonitor {
             .map_err(|e| ArqenorError::Platform(format!("lsof failed: {e}")))?;
 
         let text = String::from_utf8_lossy(&output.stdout);
-        let connections = text
-            .lines()
-            .filter_map(parse_lsof_line)
-            .collect();
+        let connections = text.lines().filter_map(parse_lsof_line).collect();
 
         Ok(connections)
     }

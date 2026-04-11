@@ -51,7 +51,10 @@ fn build_inode_pid_map() -> HashMap<u64, u32> {
             if let Ok(target) = fs::read_link(&link_path) {
                 let target_str = target.to_string_lossy();
                 // Socket entries look like: socket:[<inode>]
-                if let Some(inode_str) = target_str.strip_prefix("socket:[").and_then(|s| s.strip_suffix(']')) {
+                if let Some(inode_str) = target_str
+                    .strip_prefix("socket:[")
+                    .and_then(|s| s.strip_suffix(']'))
+                {
                     if let Ok(inode) = inode_str.parse::<u64>() {
                         map.insert(inode, pid);
                     }
@@ -70,7 +73,7 @@ fn build_inode_pid_map() -> HashMap<u64, u32> {
 fn parse_ipv4_addr(hex: &str) -> Option<String> {
     let (addr_hex, port_hex) = hex.split_once(':')?;
     let addr_u32 = u32::from_str_radix(addr_hex, 16).ok()?;
-    let port     = u16::from_str_radix(port_hex,  16).ok()?;
+    let port = u16::from_str_radix(port_hex, 16).ok()?;
     // /proc/net/tcp stores the address in host byte order (little-endian on x86).
     let ip = Ipv4Addr::from(u32::from_be(addr_u32.swap_bytes()));
     Some(format!("{ip}:{port}"))
@@ -112,11 +115,11 @@ fn tcp_state(hex_code: &str) -> ConnState {
 // ── generic /proc/net/{tcp,udp} parser ───────────────────────────────────────
 
 struct RawEntry {
-    local_addr:  String,
+    local_addr: String,
     remote_addr: String,
-    state:       ConnState,
-    inode:       u64,
-    is_udp:      bool,
+    state: ConnState,
+    inode: u64,
+    is_udp: bool,
 }
 
 fn parse_proc_net(path: &Path, is_ipv6: bool, is_udp: bool) -> Vec<RawEntry> {
@@ -134,18 +137,28 @@ fn parse_proc_net(path: &Path, is_ipv6: bool, is_udp: bool) -> Vec<RawEntry> {
             continue;
         }
 
-        let local_raw  = cols[1];
+        let local_raw = cols[1];
         let remote_raw = cols[2];
-        let state_raw  = cols[3];
+        let state_raw = cols[3];
         let inode: u64 = match cols[9].parse() {
             Ok(i) => i,
             Err(_) => continue,
         };
 
-        let parse_addr = if is_ipv6 { parse_ipv6_addr } else { parse_ipv4_addr };
+        let parse_addr = if is_ipv6 {
+            parse_ipv6_addr
+        } else {
+            parse_ipv4_addr
+        };
 
-        let local_addr  = match parse_addr(local_raw)  { Some(a) => a, None => continue };
-        let remote_addr = match parse_addr(remote_raw) { Some(a) => a, None => continue };
+        let local_addr = match parse_addr(local_raw) {
+            Some(a) => a,
+            None => continue,
+        };
+        let remote_addr = match parse_addr(remote_raw) {
+            Some(a) => a,
+            None => continue,
+        };
 
         let state = if is_udp {
             ConnState::Other("STATELESS".into())
@@ -169,10 +182,10 @@ fn parse_proc_net(path: &Path, is_ipv6: bool, is_udp: bool) -> Vec<RawEntry> {
 
 fn collect_connections(inode_map: &HashMap<u64, u32>) -> Vec<ConnectionInfo> {
     let sources: &[(&str, bool, bool)] = &[
-        ("/proc/net/tcp",  false, false),
-        ("/proc/net/tcp6", true,  false),
-        ("/proc/net/udp",  false, true),
-        ("/proc/net/udp6", true,  true),
+        ("/proc/net/tcp", false, false),
+        ("/proc/net/tcp6", true, false),
+        ("/proc/net/udp", false, true),
+        ("/proc/net/udp6", true, true),
     ];
 
     let mut result = Vec::new();
@@ -184,9 +197,7 @@ fn collect_connections(inode_map: &HashMap<u64, u32>) -> Vec<ConnectionInfo> {
             let proto = if e.is_udp { Proto::Udp } else { Proto::Tcp };
 
             // Treat "0.0.0.0:0" / "[::]0" as no remote.
-            let remote_addr = if e.remote_addr.ends_with(":0")
-                || e.remote_addr == "[::]:0"
-            {
+            let remote_addr = if e.remote_addr.ends_with(":0") || e.remote_addr == "[::]:0" {
                 None
             } else {
                 Some(e.remote_addr)

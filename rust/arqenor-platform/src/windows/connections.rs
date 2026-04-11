@@ -10,11 +10,11 @@ use arqenor_core::{
     traits::connection_monitor::ConnectionMonitor,
 };
 
+use windows::Win32::Foundation::NO_ERROR;
 use windows::Win32::NetworkManagement::IpHelper::{
     GetExtendedTcpTable, GetExtendedUdpTable, MIB_TCPROW_OWNER_PID, MIB_TCPTABLE_OWNER_PID,
     MIB_UDPROW_OWNER_PID, MIB_UDPTABLE_OWNER_PID, TCP_TABLE_OWNER_PID_ALL, UDP_TABLE_OWNER_PID,
 };
-use windows::Win32::Foundation::NO_ERROR;
 use windows::Win32::Networking::WinSock::AF_INET;
 
 // ---------------------------------------------------------------------------

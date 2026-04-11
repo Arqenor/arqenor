@@ -1,9 +1,9 @@
-#[cfg(target_os = "windows")]
-pub mod windows;
 #[cfg(target_os = "linux")]
 pub mod linux;
 #[cfg(target_os = "macos")]
 pub mod macos;
+#[cfg(target_os = "windows")]
+pub mod windows;
 
 pub mod fim;
 
@@ -12,9 +12,7 @@ pub mod fim;
 compile_error!("ARQENOR: unsupported platform (only windows / linux / macos)");
 
 use arqenor_core::traits::{
-    connection_monitor::ConnectionMonitor,
-    fs_scanner::FsScanner,
-    persistence::PersistenceDetector,
+    connection_monitor::ConnectionMonitor, fs_scanner::FsScanner, persistence::PersistenceDetector,
     process_monitor::ProcessMonitor,
 };
 
@@ -33,7 +31,9 @@ pub fn new_connection_monitor() -> Box<dyn ConnectionMonitor> {
 /// Enrich a set of connections with Windows Firewall block status for
 /// lateral-movement ports.  On non-Windows or when the `firewall-check`
 /// feature is disabled this is a no-op.
-pub fn enrich_firewall_status(connections: &mut [arqenor_core::models::connection::ConnectionInfo]) {
+pub fn enrich_firewall_status(
+    connections: &mut [arqenor_core::models::connection::ConnectionInfo],
+) {
     #[cfg(all(target_os = "windows", feature = "firewall-check"))]
     {
         use arqenor_core::models::connection::{ConnState, LATERAL_MOVEMENT_PORTS};

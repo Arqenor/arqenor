@@ -5,7 +5,7 @@
 
 use arqenor_core::error::ArqenorError;
 use std::collections::HashSet;
-use windows::core::{BSTR, ComInterface};
+use windows::core::{ComInterface, BSTR};
 use windows::Win32::NetworkManagement::WindowsFirewall::{
     INetFwPolicy2, INetFwRule, INetFwRules, NetFwPolicy2, NET_FW_ACTION_BLOCK, NET_FW_RULE_DIR_IN,
 };
@@ -31,9 +31,7 @@ pub struct FirewallPortStatus {
 ///
 /// Handles its own `CoInitializeEx` / `CoUninitialize` pair, so it's safe
 /// to call from a Tokio `spawn_blocking` context.
-pub fn query_firewall_block_status(
-    ports: &[u16],
-) -> Result<Vec<FirewallPortStatus>, ArqenorError> {
+pub fn query_firewall_block_status(ports: &[u16]) -> Result<Vec<FirewallPortStatus>, ArqenorError> {
     if ports.is_empty() {
         return Ok(Vec::new());
     }
@@ -53,14 +51,14 @@ pub fn query_firewall_block_status(
 }
 
 unsafe fn query_inner(ports: &[u16]) -> Result<Vec<FirewallPortStatus>, ArqenorError> {
-    let policy: INetFwPolicy2 =
-        CoCreateInstance(&NetFwPolicy2, None, CLSCTX_INPROC_SERVER).map_err(|e| {
+    let policy: INetFwPolicy2 = CoCreateInstance(&NetFwPolicy2, None, CLSCTX_INPROC_SERVER)
+        .map_err(|e| {
             ArqenorError::Platform(format!("CoCreateInstance(NetFwPolicy2) failed: {e}"))
         })?;
 
-    let rules: INetFwRules = policy.Rules().map_err(|e| {
-        ArqenorError::Platform(format!("INetFwPolicy2::Rules() failed: {e}"))
-    })?;
+    let rules: INetFwRules = policy
+        .Rules()
+        .map_err(|e| ArqenorError::Platform(format!("INetFwPolicy2::Rules() failed: {e}")))?;
 
     let port_set: HashSet<u16> = ports.iter().copied().collect();
 
@@ -75,13 +73,13 @@ unsafe fn query_inner(ports: &[u16]) -> Result<Vec<FirewallPortStatus>, ArqenorE
         .collect();
 
     // Get the IUnknown enumerator and cast to IEnumVARIANT.
-    let enumerator = rules._NewEnum().map_err(|e| {
-        ArqenorError::Platform(format!("INetFwRules::_NewEnum() failed: {e}"))
-    })?;
+    let enumerator = rules
+        ._NewEnum()
+        .map_err(|e| ArqenorError::Platform(format!("INetFwRules::_NewEnum() failed: {e}")))?;
 
-    let enum_var: IEnumVARIANT = enumerator.cast().map_err(|e| {
-        ArqenorError::Platform(format!("cast to IEnumVARIANT failed: {e}"))
-    })?;
+    let enum_var: IEnumVARIANT = enumerator
+        .cast()
+        .map_err(|e| ArqenorError::Platform(format!("cast to IEnumVARIANT failed: {e}")))?;
 
     let mut fetched: u32 = 0;
     loop {

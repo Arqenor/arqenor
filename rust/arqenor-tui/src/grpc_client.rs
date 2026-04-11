@@ -36,9 +36,7 @@ pub async fn stream_alerts(tx: tokio::sync::mpsc::Sender<ProtoAlert>) {
 
 /// Connects to `arqenor-grpc`, calls `WatchAlerts`, and forwards every
 /// received [`ProtoAlert`] to `tx` until the stream ends or `tx` is closed.
-async fn try_stream_alerts(
-    tx: &tokio::sync::mpsc::Sender<ProtoAlert>,
-) -> anyhow::Result<()> {
+async fn try_stream_alerts(tx: &tokio::sync::mpsc::Sender<ProtoAlert>) -> anyhow::Result<()> {
     let mut client = HostAnalyzerClient::connect("http://127.0.0.1:50051").await?;
     let mut stream = client
         .watch_alerts(tonic::Request::new(()))

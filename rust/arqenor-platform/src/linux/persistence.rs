@@ -1,12 +1,12 @@
 use crate::linux::persistence_advanced::{
     detect_git_hooks, detect_pam_modules, detect_shell_profiles, detect_ssh_authorized_keys,
 };
-use async_trait::async_trait;
 use arqenor_core::{
     error::ArqenorError,
     models::persistence::{PersistenceEntry, PersistenceKind},
     traits::persistence::PersistenceDetector,
 };
+use async_trait::async_trait;
 use std::{fs, path::Path};
 
 pub struct LinuxPersistenceDetector;
@@ -36,59 +36,242 @@ const CRON_DIRS: &[&str] = &[
 /// during C3 scanning.
 const KERNEL_MODULE_WHITELIST: &[&str] = &[
     // filesystems
-    "ext4", "ext3", "ext2", "xfs", "btrfs", "f2fs", "vfat", "fat", "ntfs",
-    "nfs", "nfs_acl", "nfsd", "nfsv4", "nfsv3", "nfsv2", "overlay", "squashfs",
-    "tmpfs", "ramfs", "iso9660", "udf", "fuse", "ceph", "erofs",
+    "ext4",
+    "ext3",
+    "ext2",
+    "xfs",
+    "btrfs",
+    "f2fs",
+    "vfat",
+    "fat",
+    "ntfs",
+    "nfs",
+    "nfs_acl",
+    "nfsd",
+    "nfsv4",
+    "nfsv3",
+    "nfsv2",
+    "overlay",
+    "squashfs",
+    "tmpfs",
+    "ramfs",
+    "iso9660",
+    "udf",
+    "fuse",
+    "ceph",
+    "erofs",
     // storage / DM / RAID
-    "loop", "dm_mod", "dm_crypt", "dm_mirror", "dm_multipath", "dm_thin_pool",
-    "dm_log", "dm_region_hash", "md_mod", "raid0", "raid1", "raid10", "raid456",
-    "libcrc32c", "scsi_mod", "sd_mod", "sr_mod", "sg", "ahci", "libahci",
-    "libata", "ata_piix", "ata_generic", "mpt3sas", "megaraid_sas", "nvme",
-    "nvme_core", "nvme_fabrics", "nvme_tcp", "virtio_blk", "virtio_scsi",
+    "loop",
+    "dm_mod",
+    "dm_crypt",
+    "dm_mirror",
+    "dm_multipath",
+    "dm_thin_pool",
+    "dm_log",
+    "dm_region_hash",
+    "md_mod",
+    "raid0",
+    "raid1",
+    "raid10",
+    "raid456",
+    "libcrc32c",
+    "scsi_mod",
+    "sd_mod",
+    "sr_mod",
+    "sg",
+    "ahci",
+    "libahci",
+    "libata",
+    "ata_piix",
+    "ata_generic",
+    "mpt3sas",
+    "megaraid_sas",
+    "nvme",
+    "nvme_core",
+    "nvme_fabrics",
+    "nvme_tcp",
+    "virtio_blk",
+    "virtio_scsi",
     // network
-    "tcp_cubic", "tcp_bbr", "ipv6", "inet_diag", "tcp_diag", "udp_diag",
-    "nf_conntrack", "nf_nat", "nf_tables", "nft_counter", "nft_log",
-    "nft_nat", "nft_masq", "ipt_MASQUERADE", "xt_conntrack", "xt_state",
-    "xt_multiport", "xt_tcpudp", "xt_REDIRECT", "xt_LOG", "xt_mark",
-    "veth", "bridge", "bonding", "team", "tun", "tap", "dummy",
-    "e1000", "e1000e", "igb", "ixgbe", "i40e", "ice", "mlx4_core",
-    "mlx5_core", "virtio_net", "vmxnet3",
+    "tcp_cubic",
+    "tcp_bbr",
+    "ipv6",
+    "inet_diag",
+    "tcp_diag",
+    "udp_diag",
+    "nf_conntrack",
+    "nf_nat",
+    "nf_tables",
+    "nft_counter",
+    "nft_log",
+    "nft_nat",
+    "nft_masq",
+    "ipt_MASQUERADE",
+    "xt_conntrack",
+    "xt_state",
+    "xt_multiport",
+    "xt_tcpudp",
+    "xt_REDIRECT",
+    "xt_LOG",
+    "xt_mark",
+    "veth",
+    "bridge",
+    "bonding",
+    "team",
+    "tun",
+    "tap",
+    "dummy",
+    "e1000",
+    "e1000e",
+    "igb",
+    "ixgbe",
+    "i40e",
+    "ice",
+    "mlx4_core",
+    "mlx5_core",
+    "virtio_net",
+    "vmxnet3",
     // crypto
-    "aes", "aes_generic", "aes_x86_64", "aesni_intel", "ghash_clmulni_intel",
-    "sha1_generic", "sha256_generic", "sha512_generic", "sha1_ssse3",
-    "sha256_ssse3", "sha512_ssse3", "crct10dif_generic", "crct10dif_pclmul",
-    "crc32_generic", "crc32c_generic", "crc32c_intel", "crc32_pclmul",
-    "chacha20poly1305", "chacha_x86_64", "poly1305_x86_64", "curve25519_x86_64",
-    "ecdh_generic", "ecb", "cbc", "ctr", "gcm", "ccm", "xts", "lrw",
-    "hmac", "drbg", "jitterentropy_rng", "ansi_cprng",
+    "aes",
+    "aes_generic",
+    "aes_x86_64",
+    "aesni_intel",
+    "ghash_clmulni_intel",
+    "sha1_generic",
+    "sha256_generic",
+    "sha512_generic",
+    "sha1_ssse3",
+    "sha256_ssse3",
+    "sha512_ssse3",
+    "crct10dif_generic",
+    "crct10dif_pclmul",
+    "crc32_generic",
+    "crc32c_generic",
+    "crc32c_intel",
+    "crc32_pclmul",
+    "chacha20poly1305",
+    "chacha_x86_64",
+    "poly1305_x86_64",
+    "curve25519_x86_64",
+    "ecdh_generic",
+    "ecb",
+    "cbc",
+    "ctr",
+    "gcm",
+    "ccm",
+    "xts",
+    "lrw",
+    "hmac",
+    "drbg",
+    "jitterentropy_rng",
+    "ansi_cprng",
     // USB
-    "usbcore", "usb_common", "ehci_hcd", "xhci_hcd", "ohci_hcd", "uhci_hcd",
-    "usb_storage", "uas", "hid", "hid_generic", "usbhid", "cdc_acm",
-    "cdc_ether", "rndis_host",
+    "usbcore",
+    "usb_common",
+    "ehci_hcd",
+    "xhci_hcd",
+    "ohci_hcd",
+    "uhci_hcd",
+    "usb_storage",
+    "uas",
+    "hid",
+    "hid_generic",
+    "usbhid",
+    "cdc_acm",
+    "cdc_ether",
+    "rndis_host",
     // PCI / platform
-    "pci_stub", "pciehp", "shpchp", "acpi_cpufreq", "intel_pstate",
-    "powernow_k8", "acpiphp", "button", "thermal", "fan",
+    "pci_stub",
+    "pciehp",
+    "shpchp",
+    "acpi_cpufreq",
+    "intel_pstate",
+    "powernow_k8",
+    "acpiphp",
+    "button",
+    "thermal",
+    "fan",
     // input / HID
-    "input_core", "evdev", "mousedev", "joydev", "psmouse", "i8042",
-    "atkbd", "libps2", "serio", "serio_raw",
+    "input_core",
+    "evdev",
+    "mousedev",
+    "joydev",
+    "psmouse",
+    "i8042",
+    "atkbd",
+    "libps2",
+    "serio",
+    "serio_raw",
     // GPU / video / DRM
-    "drm", "drm_kms_helper", "drm_panel_orientation_quirks",
-    "fbdev", "fb", "fbcon", "cfbfillrect", "cfbcopyarea", "cfbimgblt",
-    "i915", "radeon", "amdgpu", "nouveau", "virtio_gpu", "vmwgfx",
+    "drm",
+    "drm_kms_helper",
+    "drm_panel_orientation_quirks",
+    "fbdev",
+    "fb",
+    "fbcon",
+    "cfbfillrect",
+    "cfbcopyarea",
+    "cfbimgblt",
+    "i915",
+    "radeon",
+    "amdgpu",
+    "nouveau",
+    "virtio_gpu",
+    "vmwgfx",
     // Bluetooth
-    "bluetooth", "btusb", "btrtl", "btbcm", "btintel", "rfcomm",
-    "bnep", "hidp", "hci_uart",
+    "bluetooth",
+    "btusb",
+    "btrtl",
+    "btbcm",
+    "btintel",
+    "rfcomm",
+    "bnep",
+    "hidp",
+    "hci_uart",
     // sound
-    "snd", "snd_timer", "snd_pcm", "snd_rawmidi", "snd_seq", "snd_seq_device",
-    "snd_hda_core", "snd_hda_intel", "snd_hda_codec", "snd_hda_codec_generic",
-    "snd_ac97_codec", "snd_soc_core", "snd_compress", "soundcore",
+    "snd",
+    "snd_timer",
+    "snd_pcm",
+    "snd_rawmidi",
+    "snd_seq",
+    "snd_seq_device",
+    "snd_hda_core",
+    "snd_hda_intel",
+    "snd_hda_codec",
+    "snd_hda_codec_generic",
+    "snd_ac97_codec",
+    "snd_soc_core",
+    "snd_compress",
+    "soundcore",
     // virtualisation
-    "kvm", "kvm_intel", "kvm_amd", "vhost", "vhost_net", "vhost_scsi",
-    "virtio", "virtio_pci", "virtio_ring", "virtio_mmio",
+    "kvm",
+    "kvm_intel",
+    "kvm_amd",
+    "vhost",
+    "vhost_net",
+    "vhost_scsi",
+    "virtio",
+    "virtio_pci",
+    "virtio_ring",
+    "virtio_mmio",
     // misc kernel subsystems
-    "autofs4", "autofs", "sunrpc", "rpcsec_gss_krb5", "auth_rpcgss",
-    "lockd", "grace", "configfs", "efivarfs", "zstd", "lz4", "lz4hc",
-    "zlib_inflate", "zlib_deflate", "binfmt_misc", "cpuid", "msr",
+    "autofs4",
+    "autofs",
+    "sunrpc",
+    "rpcsec_gss_krb5",
+    "auth_rpcgss",
+    "lockd",
+    "grace",
+    "configfs",
+    "efivarfs",
+    "zstd",
+    "lz4",
+    "lz4hc",
+    "zlib_inflate",
+    "zlib_deflate",
+    "binfmt_misc",
+    "cpuid",
+    "msr",
 ];
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -141,8 +324,9 @@ fn detect_systemd(entries: &mut Vec<PersistenceEntry>) {
                     .unwrap_or_default();
 
                 // resolve associated service file
-                let service_name = parse_unit_field(&timer_content, "Unit")
-                    .unwrap_or_else(|| file_name.trim_end_matches(".timer").to_owned() + ".service");
+                let service_name = parse_unit_field(&timer_content, "Unit").unwrap_or_else(|| {
+                    file_name.trim_end_matches(".timer").to_owned() + ".service"
+                });
 
                 let exec_start = {
                     // look for the service in the same directory first, then all dirs
@@ -322,10 +506,10 @@ impl PersistenceDetector for LinuxPersistenceDetector {
         detect_cron(&mut entries);
         detect_ld_preload(&mut entries);
         detect_kernel_modules(&mut entries);
-        entries.extend(detect_ssh_authorized_keys());  // C4 — T1098.004
-        entries.extend(detect_pam_modules());           // C5 — T1556.003
-        entries.extend(detect_shell_profiles());        // C6 — T1546.004
-        entries.extend(detect_git_hooks());             // C7 — T1059
+        entries.extend(detect_ssh_authorized_keys()); // C4 — T1098.004
+        entries.extend(detect_pam_modules()); // C5 — T1556.003
+        entries.extend(detect_shell_profiles()); // C6 — T1546.004
+        entries.extend(detect_git_hooks()); // C7 — T1059
 
         Ok(entries)
     }
@@ -337,7 +521,11 @@ impl PersistenceDetector for LinuxPersistenceDetector {
         let current = self.detect().await?;
         Ok(current
             .into_iter()
-            .filter(|e| !baseline.iter().any(|b| b.name == e.name && b.location == e.location))
+            .filter(|e| {
+                !baseline
+                    .iter()
+                    .any(|b| b.name == e.name && b.location == e.location)
+            })
             .map(|mut e| {
                 e.is_new = true;
                 e

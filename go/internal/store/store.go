@@ -19,11 +19,11 @@ type Alert struct {
 }
 
 type Scan struct {
-	ID        string    `json:"id"`
-	CIDR      string    `json:"cidr"`
-	Status    string    `json:"status"` // "running" | "done" | "error"
-	HostsUp   int       `json:"hosts_up"`
-	StartedAt time.Time `json:"started_at"`
+	ID        string     `json:"id"`
+	CIDR      string     `json:"cidr"`
+	Status    string     `json:"status"` // "running" | "done" | "error"
+	HostsUp   int        `json:"hosts_up"`
+	StartedAt time.Time  `json:"started_at"`
 	EndedAt   *time.Time `json:"ended_at,omitempty"`
 }
 
