@@ -154,7 +154,7 @@ async fn proc_watch_loop(tx: Sender<ProcessEvent>) {
     loop {
         interval.tick().await;
 
-        sys.refresh_processes(ProcessRefreshKind::everything());
+        sys.refresh_processes();
 
         let current_pids: HashSet<u32> = sys
             .processes()
