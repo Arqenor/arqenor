@@ -146,9 +146,12 @@ impl SqliteStore {
         let mut stmt = self.conn.prepare(
             "SELECT severity, COUNT(*) FROM alerts GROUP BY severity ORDER BY COUNT(*) DESC",
         )?;
+        // rusqlite 0.38+ removed the default `FromSql` impl for `u64`/`usize`
+        // (see rusqlite CHANGELOG v0.38). SQLite's COUNT(*) is representable as
+        // `i64`; we cast back to `u64` for the public API (counts are non-negative).
         let rows = stmt
             .query_map([], |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, u64>(1)?))
+                Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)? as u64))
             })?
             .filter_map(|r| r.ok())
             .collect();
