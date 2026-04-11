@@ -28,12 +28,19 @@ fn build_process_info(p: &sysinfo::Process) -> ProcessInfo {
         .map(|e| e.to_string_lossy().into_owned())
         .filter(|s| !s.is_empty());
 
+    let cmdline = p
+        .cmd()
+        .iter()
+        .map(|arg| arg.to_string_lossy().into_owned())
+        .collect::<Vec<_>>()
+        .join(" ");
+
     ProcessInfo {
         pid: usize::from(p.pid()) as u32,
         ppid: p.parent().map(|x| usize::from(x) as u32).unwrap_or(0),
-        name: p.name().to_string(),
+        name: p.name().to_string_lossy().into_owned(),
         exe_path,
-        cmdline: Some(p.cmd().join(" ")),
+        cmdline: Some(cmdline),
         user: None,
         sha256: None,
         started_at: None,
@@ -77,9 +84,9 @@ fn stub_process_info(pid: u32) -> ProcessInfo {
 impl ProcessMonitor for MacosProcessMonitor {
     async fn snapshot(&self) -> Result<Vec<ProcessInfo>, ArqenorError> {
         let mut sys = System::new_with_specifics(
-            RefreshKind::new().with_processes(ProcessRefreshKind::everything()),
+            RefreshKind::nothing().with_processes(ProcessRefreshKind::everything()),
         );
-        sys.refresh_all();
+        sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
         Ok(sys.processes().values().map(build_process_info).collect())
     }
 
@@ -138,9 +145,9 @@ impl ProcessMonitor for MacosProcessMonitor {
 
     async fn enrich(&self, pid: u32) -> Result<ProcessInfo, ArqenorError> {
         let mut sys = System::new_with_specifics(
-            RefreshKind::new().with_processes(ProcessRefreshKind::everything()),
+            RefreshKind::nothing().with_processes(ProcessRefreshKind::everything()),
         );
-        sys.refresh_all();
+        sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
         let sysinfo_pid = sysinfo::Pid::from(pid as usize);
         sys.process(sysinfo_pid)
             .map(build_process_info)

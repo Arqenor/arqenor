@@ -34,7 +34,7 @@ toml               = "0.8"
 ratatui            = "0.30"
 crossterm          = "0.29"
 clap               = { version = "4", features = ["derive"] }
-sysinfo            = "0.30"
+sysinfo            = "0.38"
 once_cell          = "1"
 tokio-stream       = "0.1"
 
@@ -62,4 +62,8 @@ features = [
     "Win32_NetworkManagement_WindowsFirewall",
     "Win32_System_Ole",
     "Win32_System_Variant",
+    # Previously activated transitively via sysinfo 0.30's windows-sys dependency
+    # (needed by fs_scanner's ReadDirectoryChangesW). sysinfo 0.38 no longer
+    # pulls this in, so we enable it explicitly.
+    "Win32_System_IO",
 ]
