@@ -134,3 +134,19 @@ jobs:
       - name: go test
         working-directory: go
         run: go test -race -count=1 ./...
+
+  # ─────────────────────────────────────────────────────────────
+  # cargo-audit — RustSec advisory database scan
+  # Non-blocking for first adoption (continue-on-error: true) —
+  # we want signal, not a release blocker. Tighten by removing
+  # continue-on-error once the workspace is clean and pinned.
+  # ─────────────────────────────────────────────────────────────
+  audit:
+    name: cargo-audit
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: rustsec/audit-check@v2.0.0
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}

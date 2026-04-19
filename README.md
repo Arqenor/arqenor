@@ -56,13 +56,13 @@ ARQENOR gives independent developers, small teams, and security researchers comm
 | **Threat Intelligence** | IOC database (abuse.ch feeds: MalwareBazaar, Feodo, URLhaus, ThreatFox), auto-refresh 4h |
 | **Alert Correlation** | PID + parent-child grouping, ATT&CK-weighted scoring, incident model |
 | **Memory Forensics** | VAD walk (shellcode detection), process hollowing, NTDLL hook detection |
-| **YARA Scanning** | In-memory scanning (yara-x, pure Rust): Cobalt Strike, Mimikatz, Sliver, Meterpreter, shellcode |
+| **YARA Scanning** | _Planned_ — in-memory scanning via `yara-x` (pure Rust): Cobalt Strike, Mimikatz, Sliver, Meterpreter, shellcode. No `yara-x` integration yet in `arqenor-platform`. |
 | **BYOVD Detection** | 50 known-vulnerable kernel drivers (LOLDrivers.io blocklist) |
 | **Network Analysis** | C2 beaconing (CV scoring), DNS tunneling, DGA detection, JA4 TLS fingerprinting |
 | **Processes** | Snapshot + streaming monitor, SHA-256 hashing, risk scoring, real-time connection monitoring |
 | **Persistence** | Win: Registry, Tasks, Services, WMI, COM, BITS, AppInit, IFEO (B1-B9) · Lin: Cron, Systemd, LD_PRELOAD, PAM, SSH, git hooks (C1-C7) · Mac: LaunchDaemon/Agent, login items, auth plugins |
 | **Filesystem** | FIM baseline + real-time watch (ReadDirectoryChangesW / inotify / ESF) |
-| **Kernel Telemetry** | ETW (10 providers, TDH parsing) · eBPF (5 probes) · ESF (macOS) |
+| **Kernel Telemetry** | ETW (10 providers, TDH parsing) · eBPF (skeleton — probes WIP) · ESF (macOS) |
 | **TUI** | Live Ratatui dashboard with alert streaming |
 | **CLI** | `arqenor scan` · `arqenor watch --sigma-dir --yara-dir --no-ioc` |
 | **API** | REST (Go/Gin) + gRPC (Rust/Tonic) + SSE alert streaming |
@@ -130,7 +130,7 @@ arqenor/
 │   ├── arqenor-store/      # SQLite persistence layer
 │   ├── arqenor-tui/        # Ratatui terminal dashboard
 │   └── arqenor-cli/        # clap CLI (scan / watch)
-├── arqenor-ebpf/           # Linux eBPF kernel probes (libbpf-rs, 5 probes)
+├── arqenor-ebpf/           # Linux eBPF kernel probes (libbpf-rs, 5 planned — scaffold only)
 ├── go/
 │   ├── cmd/orchestrator/   # Entry point
 │   ├── internal/api/       # Gin REST handlers + SSE alert streaming
@@ -199,11 +199,21 @@ See [`docs/roadmap/ROADMAP.md`](docs/roadmap/ROADMAP.md) for the full 6-phase pl
 | Phase | Focus | Status |
 |-------|-------|--------|
 | **Phase 1** | Detection Engine + LOTL Rules (32 LOLBin rules, persistence B1-B9/C1-C7, FIM, credential theft) | ✅ Done |
-| **Phase 2** | Kernel Telemetry: ETW (10 providers), eBPF (5 probes), ESF (macOS), WDK driver | ✅ Done |
+| **Phase 2** | Kernel Telemetry: ETW (10 providers), eBPF (5 probes)[^ebpf-wip], ESF (macOS), WDK driver | 🟡 Partial |
 | **Phase 3** | Network: C2 beaconing, DNS tunneling, DGA, JA4 TLS fingerprinting, connection monitoring | ✅ Done |
 | **Phase 4** | SIGMA engine (3000+ rules), IOC feeds (abuse.ch), correlation engine, PE static analyzer | ✅ Done (behavioral ML pending) |
-| **Phase 5** | Memory forensics (VAD, hollowing, NTDLL hooks), BYOVD (50 drivers), YARA scanning | ✅ Done |
+| **Phase 5** | Memory forensics (VAD, hollowing, NTDLL hooks), BYOVD (50 drivers), YARA scanning[^yara-planned] | 🟡 Partial |
 | **Phase 6** | Cloud dashboard, fleet management, automated response | Not started |
+
+[^ebpf-wip]: eBPF probes are scaffolded but not yet attached at runtime — see [Current limitations](#current-limitations).
+[^yara-planned]: `yara-x` is not yet a dependency of any crate in `rust/`; in-memory YARA scanning is planned but not wired in. See [Current limitations](#current-limitations).
+
+---
+
+## Current limitations
+
+- **eBPF probes** — The loader in `arqenor-ebpf/src/loader.rs` is currently a scaffold. The 5 planned probes (execve, memory, persistence, privesc, rootkit) are not yet attached at runtime. Production Linux kernel telemetry relies on auditd / journald integration meanwhile.
+- **YARA scanning** — `yara-x` is not yet wired into `arqenor-platform`. Rule loading and in-memory scanning are planned; the feature is currently advertised as a roadmap item, not a shipped capability.
 
 ---
 
