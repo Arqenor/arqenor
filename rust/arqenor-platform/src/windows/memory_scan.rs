@@ -137,9 +137,10 @@ pub fn scan_process(pid: u32) -> Result<MemoryScanResult, ArqenorError> {
 /// Scan all running processes and return anomalies.
 /// Skips system processes (PID 0, PID 4) and processes we cannot open.
 pub fn scan_all_processes() -> Vec<MemoryScanResult> {
-    let mut sys =
-        System::new_with_specifics(RefreshKind::new().with_processes(ProcessRefreshKind::new()));
-    sys.refresh_all();
+    let mut sys = System::new_with_specifics(
+        RefreshKind::nothing().with_processes(ProcessRefreshKind::nothing()),
+    );
+    sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
 
     sys.processes()
         .keys()

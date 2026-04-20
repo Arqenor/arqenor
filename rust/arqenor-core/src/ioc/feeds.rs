@@ -5,11 +5,28 @@
 //! - **Feodo Tracker** (abuse.ch) — botnet C2 server IPs
 //! - **URLhaus** (abuse.ch) — malicious URLs
 //! - **ThreatFox** (abuse.ch) — mixed IOCs (IPs, domains, hashes)
+//!
+//! # Delta refresh
+//!
+//! Each fetcher issues a conditional `GET` using the `If-None-Match` and
+//! `If-Modified-Since` headers recorded in the persistent store (see
+//! [`super::persistence`]).  A `304 Not Modified` short-circuits the parse
+//! and keeps the previously-persisted IOCs in the in-memory database.
+//! On a `200 OK` the full payload is parsed, the in-store rows are replaced
+//! atomically, and the entries are added to the in-memory database.
+//!
+//! Feeds without `ETag` / `Last-Modified` support fall back to an
+//! unconditional download on every refresh — correctness is preserved
+//! because the delta is computed by replacing the feed's entire row set
+//! inside a transaction.
 
 use chrono::Utc;
+use reqwest::header::{HeaderMap, HeaderValue, ETAG, IF_MODIFIED_SINCE, IF_NONE_MATCH, LAST_MODIFIED};
+use reqwest::StatusCode;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
+use super::persistence::{FeedMeta, IocPersistence};
 use super::{IocDatabase, IocEntry, IocType};
 
 // ── Error type ───────────────────────────────────────────────────────────────
@@ -36,7 +53,7 @@ impl From<reqwest::Error> for IocFeedError {
     }
 }
 
-// ── Feed URLs ────────────────────────────────────────────────────────────────
+// ── Feed URLs / names ────────────────────────────────────────────────────────
 
 const MALWARE_BAZAAR_URL: &str = "https://bazaar.abuse.ch/export/csv/recent/";
 const FEODO_TRACKER_URL: &str =
@@ -44,18 +61,79 @@ const FEODO_TRACKER_URL: &str =
 const URLHAUS_URL: &str = "https://urlhaus.abuse.ch/downloads/csv_recent/";
 const THREATFOX_URL: &str = "https://threatfox.abuse.ch/export/csv/recent/";
 
-// ── Individual feed fetchers ─────────────────────────────────────────────────
+/// Canonical feed names.  Match the `source` field of [`IocEntry`] so that a
+/// feed's in-store rows can be re-grouped by source when persisted.
+pub const FEED_MALWARE_BAZAAR: &str = "abuse.ch/malwarebazaar";
+pub const FEED_FEODO: &str = "abuse.ch/feodotracker";
+pub const FEED_URLHAUS: &str = "abuse.ch/urlhaus";
+pub const FEED_THREATFOX: &str = "abuse.ch/threatfox";
+
+// ── Conditional GET primitive ────────────────────────────────────────────────
+
+/// Outcome of a conditional feed fetch.
+enum FetchOutcome {
+    /// Server responded `304 Not Modified` — the in-store rows are authoritative.
+    NotModified,
+    /// Server returned a fresh payload together with the headers to persist.
+    Modified {
+        body: String,
+        etag: Option<String>,
+        last_modified: Option<String>,
+    },
+}
+
+fn header_str(headers: &HeaderMap, name: reqwest::header::HeaderName) -> Option<String> {
+    headers
+        .get(name)
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string())
+}
+
+/// Perform a conditional `GET` using the cached `etag` / `last_modified`
+/// metadata, if supplied.
+async fn conditional_get(
+    client: &reqwest::Client,
+    url: &str,
+    prev: Option<&FeedMeta>,
+) -> Result<FetchOutcome, IocFeedError> {
+    let mut req = client.get(url);
+    if let Some(meta) = prev {
+        if let Some(etag) = &meta.etag {
+            if let Ok(val) = HeaderValue::from_str(etag) {
+                req = req.header(IF_NONE_MATCH, val);
+            }
+        }
+        if let Some(lm) = &meta.last_modified {
+            if let Ok(val) = HeaderValue::from_str(lm) {
+                req = req.header(IF_MODIFIED_SINCE, val);
+            }
+        }
+    }
+
+    let resp = req.send().await?;
+    if resp.status() == StatusCode::NOT_MODIFIED {
+        return Ok(FetchOutcome::NotModified);
+    }
+    let resp = resp.error_for_status()?;
+    let headers = resp.headers().clone();
+    let body = resp.text().await?;
+    Ok(FetchOutcome::Modified {
+        body,
+        etag: header_str(&headers, ETAG),
+        last_modified: header_str(&headers, LAST_MODIFIED),
+    })
+}
+
+// ── Individual feed parsers ──────────────────────────────────────────────────
 
 /// MalwareBazaar — SHA-256 hashes of known malware samples.
 ///
 /// CSV columns: first_seen_utc, sha256_hash, md5_hash, sha1_hash, reporter,
 /// file_name, file_type_guess, mime_type, signature, clamav, vtpercent,
 /// imphash, ssdeep, tlsh, tags
-pub async fn fetch_malware_bazaar(db: &mut IocDatabase) -> Result<usize, IocFeedError> {
-    let body = reqwest::get(MALWARE_BAZAAR_URL).await?.text().await?;
-    let mut count = 0;
+fn parse_malware_bazaar(body: &str) -> Vec<IocEntry> {
+    let mut out = Vec::new();
     let now = Utc::now();
-
     for line in body.lines() {
         let line = line.trim();
         if line.is_empty() || line.starts_with('#') || line.starts_with("first_seen") {
@@ -71,62 +149,47 @@ pub async fn fetch_malware_bazaar(db: &mut IocDatabase) -> Result<usize, IocFeed
         }
         let tags_raw = cols.get(14).unwrap_or(&"").trim().trim_matches('"');
         let tags: Vec<String> = tags_raw.split_whitespace().map(|t| t.to_string()).collect();
-
-        db.add(IocEntry {
+        out.push(IocEntry {
             ioc_type: IocType::Sha256Hash,
             value: sha256.to_string(),
-            source: "abuse.ch/malwarebazaar".to_string(),
+            source: FEED_MALWARE_BAZAAR.to_string(),
             tags,
             added_at: now,
         });
-        count += 1;
     }
-
-    tracing::info!(count, "MalwareBazaar feed loaded");
-    Ok(count)
+    out
 }
 
-/// Feodo Tracker — botnet C2 server IP addresses.
-///
-/// Plain text, one IP per line. Comment lines start with `#`.
-pub async fn fetch_feodo_tracker(db: &mut IocDatabase) -> Result<usize, IocFeedError> {
-    let body = reqwest::get(FEODO_TRACKER_URL).await?.text().await?;
-    let mut count = 0;
+/// Feodo Tracker — botnet C2 server IPs (plain text, one per line).
+fn parse_feodo(body: &str) -> Vec<IocEntry> {
+    let mut out = Vec::new();
     let now = Utc::now();
-
     for line in body.lines() {
         let line = line.trim();
         if line.is_empty() || line.starts_with('#') {
             continue;
         }
-        // Validate it looks like an IP.
         if line.parse::<std::net::IpAddr>().is_err() {
             continue;
         }
-
-        db.add(IocEntry {
+        out.push(IocEntry {
             ioc_type: IocType::Ipv4,
             value: line.to_string(),
-            source: "abuse.ch/feodotracker".to_string(),
+            source: FEED_FEODO.to_string(),
             tags: vec!["botnet".to_string(), "c2".to_string()],
             added_at: now,
         });
-        count += 1;
     }
-
-    tracing::info!(count, "Feodo Tracker feed loaded");
-    Ok(count)
+    out
 }
 
-/// URLhaus — malicious URLs (malware distribution, phishing, C2).
+/// URLhaus — malicious URLs.
 ///
 /// CSV columns: id, dateadded, url, url_status, last_online, threat, tags,
 /// urlhaus_link, reporter
-pub async fn fetch_urlhaus(db: &mut IocDatabase) -> Result<usize, IocFeedError> {
-    let body = reqwest::get(URLHAUS_URL).await?.text().await?;
-    let mut count = 0;
+fn parse_urlhaus(body: &str) -> Vec<IocEntry> {
+    let mut out = Vec::new();
     let now = Utc::now();
-
     for line in body.lines() {
         let line = line.trim();
         if line.is_empty() || line.starts_with('#') || line.starts_with("id,") {
@@ -147,42 +210,35 @@ pub async fn fetch_urlhaus(db: &mut IocDatabase) -> Result<usize, IocFeedError> 
             .map(|t| t.to_string())
             .collect();
 
-        db.add(IocEntry {
+        out.push(IocEntry {
             ioc_type: IocType::Url,
             value: url.to_string(),
-            source: "abuse.ch/urlhaus".to_string(),
+            source: FEED_URLHAUS.to_string(),
             tags,
             added_at: now,
         });
 
-        // Also extract domain from URL for domain-level matching.
         if let Some(domain) = extract_domain(url) {
-            db.add(IocEntry {
+            out.push(IocEntry {
                 ioc_type: IocType::Domain,
                 value: domain,
-                source: "abuse.ch/urlhaus".to_string(),
+                source: FEED_URLHAUS.to_string(),
                 tags: vec![],
                 added_at: now,
             });
         }
-
-        count += 1;
     }
-
-    tracing::info!(count, "URLhaus feed loaded");
-    Ok(count)
+    out
 }
 
-/// ThreatFox — mixed IOCs (IPs, domains, SHA-256, MD5).
+/// ThreatFox — mixed IOCs.
 ///
 /// CSV columns: first_seen_utc, ioc_id, ioc_value, ioc_type, threat_type,
 /// fk_malware, malware_alias, malware_printable, last_seen_utc,
 /// confidence_level, reference, tags, anonymous, reporter
-pub async fn fetch_threatfox(db: &mut IocDatabase) -> Result<usize, IocFeedError> {
-    let body = reqwest::get(THREATFOX_URL).await?.text().await?;
-    let mut count = 0;
+fn parse_threatfox(body: &str) -> Vec<IocEntry> {
+    let mut out = Vec::new();
     let now = Utc::now();
-
     for line in body.lines() {
         let line = line.trim();
         if line.is_empty() || line.starts_with('#') || line.starts_with("first_seen") {
@@ -214,25 +270,148 @@ pub async fn fetch_threatfox(db: &mut IocDatabase) -> Result<usize, IocFeedError
             _ => continue,
         };
 
-        // For ip:port entries, strip the port.
         let value = if ioc_type_str == "ip:port" {
             ioc_value.split(':').next().unwrap_or(ioc_value).to_string()
         } else {
             ioc_value.to_string()
         };
 
-        db.add(IocEntry {
+        out.push(IocEntry {
             ioc_type,
             value,
-            source: "abuse.ch/threatfox".to_string(),
+            source: FEED_THREATFOX.to_string(),
             tags,
             added_at: now,
         });
-        count += 1;
     }
+    out
+}
 
+// ── Public single-feed fetchers (backward-compatible) ────────────────────────
+
+/// Shared `reqwest::Client` for all fetchers within a single refresh cycle.
+fn new_client() -> reqwest::Client {
+    reqwest::Client::builder()
+        .user_agent(concat!("arqenor-core/", env!("CARGO_PKG_VERSION")))
+        .build()
+        .unwrap_or_else(|_| reqwest::Client::new())
+}
+
+/// MalwareBazaar fetcher — unconditional GET, kept for backward compatibility.
+pub async fn fetch_malware_bazaar(db: &mut IocDatabase) -> Result<usize, IocFeedError> {
+    let body = reqwest::get(MALWARE_BAZAAR_URL).await?.text().await?;
+    let entries = parse_malware_bazaar(&body);
+    let count = entries.len();
+    for e in entries {
+        db.add(e);
+    }
+    tracing::info!(count, "MalwareBazaar feed loaded");
+    Ok(count)
+}
+
+/// Feodo Tracker fetcher — unconditional GET, kept for backward compatibility.
+pub async fn fetch_feodo_tracker(db: &mut IocDatabase) -> Result<usize, IocFeedError> {
+    let body = reqwest::get(FEODO_TRACKER_URL).await?.text().await?;
+    let entries = parse_feodo(&body);
+    let count = entries.len();
+    for e in entries {
+        db.add(e);
+    }
+    tracing::info!(count, "Feodo Tracker feed loaded");
+    Ok(count)
+}
+
+/// URLhaus fetcher — unconditional GET, kept for backward compatibility.
+pub async fn fetch_urlhaus(db: &mut IocDatabase) -> Result<usize, IocFeedError> {
+    let body = reqwest::get(URLHAUS_URL).await?.text().await?;
+    let entries = parse_urlhaus(&body);
+    let count = entries.len();
+    for e in entries {
+        db.add(e);
+    }
+    tracing::info!(count, "URLhaus feed loaded");
+    Ok(count)
+}
+
+/// ThreatFox fetcher — unconditional GET, kept for backward compatibility.
+pub async fn fetch_threatfox(db: &mut IocDatabase) -> Result<usize, IocFeedError> {
+    let body = reqwest::get(THREATFOX_URL).await?.text().await?;
+    let entries = parse_threatfox(&body);
+    let count = entries.len();
+    for e in entries {
+        db.add(e);
+    }
     tracing::info!(count, "ThreatFox feed loaded");
     Ok(count)
+}
+
+// ── Store-aware refresh with delta detection ─────────────────────────────────
+
+/// Parser function signature for a feed's raw body.
+type FeedParser = fn(&str) -> Vec<IocEntry>;
+
+/// Static description of a feed: (canonical name, URL, parser).
+type FeedJob = (&'static str, &'static str, FeedParser);
+
+/// Result of refreshing a single feed.
+#[derive(Debug, Clone, Copy)]
+pub enum FeedRefresh {
+    /// Server returned `304 Not Modified` — nothing changed upstream.
+    NotModified,
+    /// Feed was re-downloaded; `usize` is the number of entries now active
+    /// for this feed.
+    Updated(usize),
+}
+
+/// Fetch a single feed with conditional-GET semantics.  Returns the parsed
+/// entries (empty when `NotModified`) and the outcome.
+async fn refresh_one(
+    client: &reqwest::Client,
+    url: &str,
+    feed: &str,
+    parse: FeedParser,
+    store: Option<&dyn IocPersistence>,
+) -> Result<(FeedRefresh, Vec<IocEntry>), IocFeedError> {
+    let prev = match store {
+        Some(s) => match s.get_feed_meta(feed) {
+            Ok(m) => m,
+            Err(e) => {
+                tracing::warn!(%e, feed, "failed to read persisted feed metadata");
+                None
+            }
+        },
+        None => None,
+    };
+
+    match conditional_get(client, url, prev.as_ref()).await? {
+        FetchOutcome::NotModified => {
+            tracing::info!(feed, "feed unchanged (304 Not Modified)");
+            Ok((FeedRefresh::NotModified, Vec::new()))
+        }
+        FetchOutcome::Modified { body, etag, last_modified } => {
+            let entries = parse(&body);
+            let count = entries.len();
+
+            if let Some(s) = store {
+                if let Err(e) = s.replace_feed_iocs(feed, &entries) {
+                    tracing::warn!(%e, feed, "failed to persist feed IOCs");
+                }
+                let meta = FeedMeta {
+                    name: feed.to_string(),
+                    source_url: url.to_string(),
+                    etag,
+                    last_modified,
+                    fetched_at: Utc::now(),
+                };
+                if let Err(e) = s.upsert_feed_meta(&meta) {
+                    tracing::warn!(%e, feed, "failed to persist feed metadata");
+                }
+            }
+
+            tracing::info!(count, feed, "feed refreshed");
+            Ok((FeedRefresh::Updated(count), entries))
+        }
+    }
 }
 
 // ── Aggregate refresh ────────────────────────────────────────────────────────
@@ -242,23 +421,38 @@ pub async fn fetch_threatfox(db: &mut IocDatabase) -> Result<usize, IocFeedError
 /// Errors from individual feeds are logged but do not prevent others from
 /// loading.
 pub async fn refresh_all_feeds(db: &mut IocDatabase) -> usize {
-    let mut total = 0;
+    refresh_all_feeds_with_persist(db, None).await
+}
 
-    match fetch_malware_bazaar(db).await {
-        Ok(n) => total += n,
-        Err(e) => tracing::warn!("MalwareBazaar feed failed: {e}"),
-    }
-    match fetch_feodo_tracker(db).await {
-        Ok(n) => total += n,
-        Err(e) => tracing::warn!("Feodo Tracker feed failed: {e}"),
-    }
-    match fetch_urlhaus(db).await {
-        Ok(n) => total += n,
-        Err(e) => tracing::warn!("URLhaus feed failed: {e}"),
-    }
-    match fetch_threatfox(db).await {
-        Ok(n) => total += n,
-        Err(e) => tracing::warn!("ThreatFox feed failed: {e}"),
+/// Refresh all supported feeds, persisting results to `store` when supplied
+/// and honouring HTTP conditional-GET for delta refresh.
+pub async fn refresh_all_feeds_with_persist(
+    db: &mut IocDatabase,
+    store: Option<&dyn IocPersistence>,
+) -> usize {
+    let client = new_client();
+    let mut total = 0usize;
+
+    let jobs: [FeedJob; 4] = [
+        (FEED_MALWARE_BAZAAR, MALWARE_BAZAAR_URL, parse_malware_bazaar),
+        (FEED_FEODO, FEODO_TRACKER_URL, parse_feodo),
+        (FEED_URLHAUS, URLHAUS_URL, parse_urlhaus),
+        (FEED_THREATFOX, THREATFOX_URL, parse_threatfox),
+    ];
+
+    for (feed, url, parse) in jobs {
+        match refresh_one(&client, url, feed, parse, store).await {
+            Ok((FeedRefresh::NotModified, _)) => {
+                // In-store rows are authoritative; they were already loaded at boot.
+            }
+            Ok((FeedRefresh::Updated(n), entries)) => {
+                total += n;
+                for e in entries {
+                    db.add(e);
+                }
+            }
+            Err(e) => tracing::warn!(%e, feed, "feed refresh failed"),
+        }
     }
 
     db.last_updated = Some(Utc::now());
@@ -278,6 +472,24 @@ pub fn spawn_feed_refresh_loop(
             {
                 let mut guard = db.write().await;
                 refresh_all_feeds(&mut guard).await;
+            }
+            tokio::time::sleep(interval).await;
+        }
+    })
+}
+
+/// Variant of [`spawn_feed_refresh_loop`] that persists each refresh to
+/// `store`.
+pub fn spawn_feed_refresh_loop_with_persist(
+    db: Arc<RwLock<IocDatabase>>,
+    store: Arc<dyn IocPersistence>,
+    interval: std::time::Duration,
+) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        loop {
+            {
+                let mut guard = db.write().await;
+                refresh_all_feeds_with_persist(&mut guard, Some(store.as_ref())).await;
             }
             tokio::time::sleep(interval).await;
         }
@@ -319,5 +531,26 @@ mod tests {
             Some("files.bad.org".into())
         );
         assert_eq!(extract_domain("not a url"), None);
+    }
+
+    #[test]
+    fn test_parse_feodo_skips_comments_and_junk() {
+        let body = "# header\n\n1.2.3.4\n5.6.7.8\nnot-an-ip\n";
+        let entries = parse_feodo(body);
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].value, "1.2.3.4");
+        assert_eq!(entries[0].source, FEED_FEODO);
+    }
+
+    #[test]
+    fn test_parse_threatfox_ip_port_stripping() {
+        let header = "first_seen_utc,ioc_id,ioc_value,ioc_type,threat_type,fk_malware,malware_alias,malware_printable,last_seen_utc,confidence_level,reference,tags,anonymous,reporter\n";
+        let row = r#""2024-01-01","1","1.2.3.4:8080","ip:port","botnet_cc","","","Emotet","","75","","tag1 tag2","0","rep""#;
+        let body = format!("{header}{row}");
+        let entries = parse_threatfox(&body);
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].value, "1.2.3.4");
+        assert!(matches!(entries[0].ioc_type, IocType::Ipv4));
+        assert!(entries[0].tags.iter().any(|t| t == "Emotet"));
     }
 }

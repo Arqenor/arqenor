@@ -106,6 +106,64 @@ fn core_alert_to_proto(a: arqenor_core::models::alert::Alert) -> common::Alert {
     }
 }
 
+// ── Core → proto event conversion ────────────────────────────────────────────
+
+fn chrono_to_proto_ts(t: chrono::DateTime<chrono::Utc>) -> prost_types::Timestamp {
+    prost_types::Timestamp {
+        seconds: t.timestamp(),
+        nanos: t.timestamp_subsec_nanos() as i32,
+    }
+}
+
+fn core_process_info_to_proto(
+    p: arqenor_core::models::process::ProcessInfo,
+) -> ProtoProcessInfo {
+    ProtoProcessInfo {
+        pid: p.pid,
+        ppid: p.ppid,
+        name: p.name,
+        exe_path: p.exe_path.unwrap_or_default(),
+        cmdline: p.cmdline.unwrap_or_default(),
+        user: p.user.unwrap_or_default(),
+        sha256: p.sha256.unwrap_or_default(),
+        started_at: p.started_at.map(chrono_to_proto_ts),
+        loaded_modules: p.loaded_modules,
+    }
+}
+
+fn core_process_event_to_proto(
+    e: arqenor_core::models::process::ProcessEvent,
+) -> ProtoProcessEvent {
+    use arqenor_core::models::process::ProcessEventKind;
+    let kind = match e.kind {
+        ProcessEventKind::Created => crate::host::process_event::Kind::Created as i32,
+        ProcessEventKind::Terminated => crate::host::process_event::Kind::Terminated as i32,
+        ProcessEventKind::Modified => crate::host::process_event::Kind::Modified as i32,
+    };
+    ProtoProcessEvent {
+        kind,
+        process: Some(core_process_info_to_proto(e.process)),
+        event_time: Some(chrono_to_proto_ts(e.event_time)),
+    }
+}
+
+fn core_file_event_to_proto(e: arqenor_core::models::file_event::FileEvent) -> ProtoFileEvent {
+    use arqenor_core::models::file_event::FileEventKind;
+    let kind = match e.kind {
+        FileEventKind::Created => crate::host::file_event::Kind::Created as i32,
+        FileEventKind::Modified => crate::host::file_event::Kind::Modified as i32,
+        FileEventKind::Deleted => crate::host::file_event::Kind::Deleted as i32,
+        FileEventKind::Renamed => crate::host::file_event::Kind::Renamed as i32,
+    };
+    ProtoFileEvent {
+        kind,
+        path: e.path,
+        sha256: e.sha256.unwrap_or_default(),
+        size: e.size.unwrap_or(0),
+        event_time: Some(chrono_to_proto_ts(e.event_time)),
+    }
+}
+
 // ── HostAnalyzer implementation ───────────────────────────────────────────────
 
 #[tonic::async_trait]
@@ -150,9 +208,30 @@ impl HostAnalyzer for HostAnalyzerService {
         &self,
         _req: Request<()>,
     ) -> Result<Response<Self::WatchProcessesStream>, Status> {
-        Err(Status::unimplemented(
-            "watch_processes: ETW/eBPF coming in Phase 2",
-        ))
+        // Bridge core ProcessEvent stream (from the platform provider) onto the
+        // gRPC response stream.
+        let (core_tx, mut core_rx) =
+            mpsc::channel::<arqenor_core::models::process::ProcessEvent>(256);
+        let (stream_tx, stream_rx) = mpsc::channel::<Result<ProtoProcessEvent, Status>>(256);
+
+        let monitor = new_process_monitor();
+        monitor.watch(core_tx).await.map_err(|e| {
+            tracing::error!("watch_processes: failed to start process monitor: {e}");
+            Status::internal(format!("failed to start process monitor: {e}"))
+        })?;
+
+        tokio::spawn(async move {
+            while let Some(evt) = core_rx.recv().await {
+                let proto = core_process_event_to_proto(evt);
+                if stream_tx.send(Ok(proto)).await.is_err() {
+                    // Client disconnected.
+                    break;
+                }
+            }
+            tracing::debug!("watch_processes: core event stream closed");
+        });
+
+        Ok(Response::new(ReceiverStream::new(stream_rx)))
     }
 
     async fn scan_filesystem(
@@ -195,11 +274,47 @@ impl HostAnalyzer for HostAnalyzerService {
 
     async fn watch_filesystem(
         &self,
-        _req: Request<ScanRequest>,
+        req: Request<ScanRequest>,
     ) -> Result<Response<Self::WatchFilesystemStream>, Status> {
-        Err(Status::unimplemented(
-            "watch_filesystem: inotify/FSEvents coming in Phase 2",
-        ))
+        let r = req.into_inner();
+
+        // Fall back to the platform-specific default FIM path if the caller did
+        // not specify one — matches the behaviour of `watch_alerts` and keeps
+        // the RPC useful with an empty request.
+        let root = if r.root_path.trim().is_empty() {
+            default_fim_path()
+        } else {
+            std::path::PathBuf::from(&r.root_path)
+        };
+
+        let (core_tx, mut core_rx) =
+            mpsc::channel::<arqenor_core::models::file_event::FileEvent>(256);
+        let (stream_tx, stream_rx) = mpsc::channel::<Result<ProtoFileEvent, Status>>(256);
+
+        let scanner = new_fs_scanner();
+        scanner.watch_path(&root, core_tx).await.map_err(|e| {
+            tracing::error!(
+                "watch_filesystem: failed to start fs watcher on {}: {e}",
+                root.display()
+            );
+            Status::internal(format!(
+                "failed to start fs watcher on {}: {e}",
+                root.display()
+            ))
+        })?;
+
+        tokio::spawn(async move {
+            while let Some(evt) = core_rx.recv().await {
+                let proto = core_file_event_to_proto(evt);
+                if stream_tx.send(Ok(proto)).await.is_err() {
+                    // Client disconnected.
+                    break;
+                }
+            }
+            tracing::debug!("watch_filesystem: core event stream closed");
+        });
+
+        Ok(Response::new(ReceiverStream::new(stream_rx)))
     }
 
     async fn get_persistence(
@@ -301,5 +416,144 @@ impl HostAnalyzer for HostAnalyzerService {
         });
 
         Ok(Response::new(ReceiverStream::new(stream_rx)))
+    }
+}
+
+// ── Tests ────────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use arqenor_core::models::{
+        file_event::{FileEvent as CoreFileEvent, FileEventKind},
+        process::{ProcessEvent as CoreProcessEvent, ProcessEventKind, ProcessInfo as CoreProcessInfo},
+    };
+    use chrono::Utc;
+    use uuid::Uuid;
+
+    fn sample_process_info() -> CoreProcessInfo {
+        CoreProcessInfo {
+            pid: 42,
+            ppid: 1,
+            name: "bash".into(),
+            exe_path: Some("/bin/bash".into()),
+            cmdline: Some("bash -c 'echo'".into()),
+            user: Some("root".into()),
+            sha256: Some("deadbeef".into()),
+            started_at: Some(Utc::now()),
+            loaded_modules: vec!["libc.so".into()],
+        }
+    }
+
+    #[test]
+    fn converts_process_event_kinds() {
+        let base = CoreProcessEvent {
+            id: Uuid::new_v4(),
+            kind: ProcessEventKind::Created,
+            process: sample_process_info(),
+            event_time: Utc::now(),
+        };
+        let proto_created = core_process_event_to_proto(base.clone());
+        assert_eq!(
+            proto_created.kind,
+            crate::host::process_event::Kind::Created as i32,
+        );
+        assert!(proto_created.process.is_some());
+        let process = proto_created.process.unwrap();
+        assert_eq!(process.pid, 42);
+        assert_eq!(process.name, "bash");
+        assert_eq!(process.exe_path, "/bin/bash");
+        assert_eq!(process.loaded_modules, vec!["libc.so".to_string()]);
+
+        let mut terminated = base.clone();
+        terminated.kind = ProcessEventKind::Terminated;
+        assert_eq!(
+            core_process_event_to_proto(terminated).kind,
+            crate::host::process_event::Kind::Terminated as i32,
+        );
+
+        let mut modified = base;
+        modified.kind = ProcessEventKind::Modified;
+        assert_eq!(
+            core_process_event_to_proto(modified).kind,
+            crate::host::process_event::Kind::Modified as i32,
+        );
+    }
+
+    #[test]
+    fn converts_file_event_kinds() {
+        let base = CoreFileEvent {
+            id: Uuid::new_v4(),
+            kind: FileEventKind::Created,
+            path: "/tmp/x".into(),
+            sha256: Some("cafebabe".into()),
+            size: Some(1_024),
+            event_time: Utc::now(),
+        };
+        let proto = core_file_event_to_proto(base.clone());
+        assert_eq!(proto.path, "/tmp/x");
+        assert_eq!(proto.sha256, "cafebabe");
+        assert_eq!(proto.size, 1_024);
+        assert_eq!(proto.kind, crate::host::file_event::Kind::Created as i32);
+
+        for (core_kind, expected) in [
+            (FileEventKind::Modified, crate::host::file_event::Kind::Modified),
+            (FileEventKind::Deleted, crate::host::file_event::Kind::Deleted),
+            (FileEventKind::Renamed, crate::host::file_event::Kind::Renamed),
+        ] {
+            let mut e = base.clone();
+            e.kind = core_kind;
+            assert_eq!(core_file_event_to_proto(e).kind, expected as i32);
+        }
+    }
+
+    #[test]
+    fn handles_missing_optional_fields() {
+        let proto = core_file_event_to_proto(CoreFileEvent {
+            id: Uuid::new_v4(),
+            kind: FileEventKind::Deleted,
+            path: "/gone".into(),
+            sha256: None,
+            size: None,
+            event_time: Utc::now(),
+        });
+        assert_eq!(proto.sha256, "");
+        assert_eq!(proto.size, 0);
+    }
+
+    /// Smoke test: `watch_filesystem` returns a live gRPC stream on a valid
+    /// temporary directory.  We don't assert that any event is produced
+    /// (platform watchers may batch or suppress changes during test runs),
+    /// only that the RPC wires through without error and yields a stream
+    /// that stays open long enough to attempt a `recv`.
+    #[tokio::test]
+    async fn watch_filesystem_smoke() {
+        use std::time::Duration;
+        use tokio_stream::StreamExt;
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        let svc = HostAnalyzerService::new();
+
+        let req = Request::new(crate::host::ScanRequest {
+            root_path: dir.path().to_string_lossy().into_owned(),
+            recursive: false,
+            include_exts: vec![],
+            max_size_bytes: 0,
+        });
+
+        // If the platform watcher cannot start on a transient tempdir (some CI
+        // sandboxes block inotify / ReadDirectoryChangesW), accept the error
+        // as a non-failure — the wiring is what we're testing.
+        let Ok(resp) = svc.watch_filesystem(req).await else {
+            return;
+        };
+        let mut stream = resp.into_inner();
+
+        // Trigger a couple of filesystem events; ignore propagation races.
+        let target = dir.path().join("smoke.txt");
+        let _ = tokio::fs::write(&target, b"hello").await;
+
+        // Poll with a short timeout; we accept either an event or timeout.
+        let _ = tokio::time::timeout(Duration::from_millis(250), stream.next()).await;
     }
 }

@@ -105,12 +105,19 @@ fn build_process_info(p: &sysinfo::Process) -> ProcessInfo {
         .filter(|s| !s.is_empty())
         .or_else(|| win32_exe_path(pid));
 
+    let cmdline = p
+        .cmd()
+        .iter()
+        .map(|arg| arg.to_string_lossy().into_owned())
+        .collect::<Vec<_>>()
+        .join(" ");
+
     ProcessInfo {
         pid,
         ppid: p.parent().map(|x| usize::from(x) as u32).unwrap_or(0),
-        name: p.name().to_string(),
+        name: p.name().to_string_lossy().into_owned(),
         exe_path,
-        cmdline: Some(p.cmd().join(" ")),
+        cmdline: Some(cmdline),
         user: None,
         sha256: None,
         started_at: None,
@@ -122,9 +129,9 @@ fn build_process_info(p: &sysinfo::Process) -> ProcessInfo {
 impl ProcessMonitor for WindowsProcessMonitor {
     async fn snapshot(&self) -> Result<Vec<ProcessInfo>, ArqenorError> {
         let mut sys = System::new_with_specifics(
-            RefreshKind::new().with_processes(ProcessRefreshKind::everything()),
+            RefreshKind::nothing().with_processes(ProcessRefreshKind::everything()),
         );
-        sys.refresh_all();
+        sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
         Ok(sys.processes().values().map(build_process_info).collect())
     }
 
@@ -142,9 +149,9 @@ impl ProcessMonitor for WindowsProcessMonitor {
     /// `CreateToolhelp32Snapshot` + `Module32FirstW`/`Module32NextW`.
     async fn enrich(&self, pid: u32) -> Result<ProcessInfo, ArqenorError> {
         let mut sys = System::new_with_specifics(
-            RefreshKind::new().with_processes(ProcessRefreshKind::everything()),
+            RefreshKind::nothing().with_processes(ProcessRefreshKind::everything()),
         );
-        sys.refresh_all();
+        sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
         let sysinfo_pid = sysinfo::Pid::from(pid as usize);
         let mut info = sys
             .process(sysinfo_pid)
@@ -179,14 +186,14 @@ fn evt_watch_loop(tx: Sender<ProcessEvent>) {
 
         // Subscribe to future Security log events (signal-based, no callback)
         let sub = match EvtSubscribe(
-            EVT_HANDLE(0), // local session
-            signal,        // signal handle
+            None,         // local session
+            Some(signal), // signal handle
             PCWSTR::from_raw(channel.as_ptr()),
             PCWSTR::from_raw(query.as_ptr()),
-            EVT_HANDLE(0), // no bookmark
-            None,          // no context
-            None,          // no callback
-            1u32,          // EvtSubscribeToFutureEvents
+            None, // no bookmark
+            None, // no context
+            None, // no callback
+            1u32, // EvtSubscribeToFutureEvents
         ) {
             Ok(h) => h,
             Err(_) => {
@@ -256,7 +263,7 @@ unsafe fn render_event(handle: EVT_HANDLE, buf: &mut Vec<u16>) -> Option<Process
 
     // First try with the pre-allocated buffer
     let render_ok = EvtRender(
-        EVT_HANDLE(0),
+        None,
         handle,
         1u32, // EvtRenderEventXml
         (buf.len() * 2) as u32,
@@ -272,7 +279,7 @@ unsafe fn render_event(handle: EVT_HANDLE, buf: &mut Vec<u16>) -> Option<Process
         // Buffer too small — resize and retry
         buf.resize((used / 2 + 1) as usize, 0);
         EvtRender(
-            EVT_HANDLE(0),
+            None,
             handle,
             1u32,
             (buf.len() * 2) as u32,

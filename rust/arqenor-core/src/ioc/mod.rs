@@ -6,6 +6,7 @@
 
 pub mod checker;
 pub mod feeds;
+pub mod persistence;
 
 use std::collections::{HashMap, HashSet};
 use std::net::IpAddr;
