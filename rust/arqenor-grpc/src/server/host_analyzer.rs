@@ -9,7 +9,11 @@ use crate::{
 };
 use arqenor_core::traits::connection_monitor::spawn_polling_watch;
 use arqenor_core::{
-    ioc::{feeds, IocDatabase},
+    ioc::{
+        feeds,
+        persistence::{load_from_store, IocPersistence},
+        IocDatabase,
+    },
     models::alert::Severity as CoreSeverity,
     pipeline::{DetectionPipeline, PipelineConfig},
     rules::sigma,
@@ -17,6 +21,7 @@ use arqenor_core::{
 use arqenor_platform::{
     new_connection_monitor, new_fs_scanner, new_persistence_detector, new_process_monitor,
 };
+use arqenor_store::IocSqliteStore;
 use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
 
@@ -40,15 +45,47 @@ impl HostAnalyzerService {
         let ioc_db = Arc::new(RwLock::new(IocDatabase::new()));
 
         // Best-effort initial feed load (blocking in constructor is acceptable
-        // because the gRPC server hasn't started accepting yet).
+        // because the gRPC server hasn't started accepting yet). Persist to
+        // SQLite when possible so feeds survive restarts and benefit from
+        // HTTP conditional-GET delta refresh.
         let db_clone = Arc::clone(&ioc_db);
         tokio::spawn(async move {
+            let data_dir = std::env::var("ARQENOR_DATA_DIR")
+                .map(std::path::PathBuf::from)
+                .unwrap_or_else(|_| std::path::PathBuf::from("."));
+
+            let store: Option<Arc<dyn IocPersistence>> =
+                match std::fs::create_dir_all(&data_dir) {
+                    Err(e) => {
+                        tracing::warn!(%e, path = %data_dir.display(),
+                            "create data_dir failed, IOC persistence disabled");
+                        None
+                    }
+                    Ok(()) => match IocSqliteStore::open(&data_dir.join("ioc.db")) {
+                        Ok(s) => Some(Arc::new(s)),
+                        Err(e) => {
+                            tracing::warn!(%e, "open IOC store failed, falling back to in-memory");
+                            None
+                        }
+                    },
+                };
+
             {
                 let mut guard = db_clone.write().await;
-                feeds::refresh_all_feeds(&mut guard).await;
+                if let Some(ref s) = store {
+                    if let Err(e) = load_from_store(s.as_ref(), &mut guard) {
+                        tracing::warn!(%e, "load IOC from store failed");
+                    }
+                }
+                feeds::refresh_all_feeds_with_persist(&mut guard, store.as_deref()).await;
             }
+
             // Refresh every 4 hours.
-            feeds::spawn_feed_refresh_loop(db_clone, std::time::Duration::from_secs(4 * 3600));
+            let interval = std::time::Duration::from_secs(4 * 3600);
+            match store {
+                Some(s) => feeds::spawn_feed_refresh_loop_with_persist(db_clone, s, interval),
+                None => feeds::spawn_feed_refresh_loop(db_clone, interval),
+            };
         });
 
         // Load SIGMA rules from a well-known path if present.

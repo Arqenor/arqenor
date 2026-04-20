@@ -281,10 +281,18 @@ impl CorrelationEngine {
         }
     }
 
-    /// Close stale incidents and return the newly closed ones.
+    /// Close stale incidents using the default correlation window
+    /// ([`CORRELATION_WINDOW_SECS`]). Returns the newly closed ones.
     pub fn flush_stale(&mut self) -> Vec<Incident> {
+        self.flush_stale_with_window(Duration::seconds(CORRELATION_WINDOW_SECS))
+    }
+
+    /// Close stale incidents using a caller-supplied window. Incidents whose
+    /// `last_seen` is older than `window` relative to `now` are closed and
+    /// returned. Useful for callers (e.g. SOC UIs) that want a longer grace
+    /// period than the default correlation window.
+    pub fn flush_stale_with_window(&mut self, window: Duration) -> Vec<Incident> {
         let now = Utc::now();
-        let window = Duration::seconds(CORRELATION_WINDOW_SECS);
         let mut flushed = Vec::new();
 
         let stale_pids: Vec<u32> = self
