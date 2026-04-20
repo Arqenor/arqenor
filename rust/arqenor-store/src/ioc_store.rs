@@ -96,7 +96,9 @@ impl IocSqliteStore {
         conn.pragma_update(None, "journal_mode", "WAL")?;
         conn.pragma_update(None, "foreign_keys", "ON")?;
         conn.execute_batch(INIT_SQL)?;
-        Ok(Self { conn: Mutex::new(conn) })
+        Ok(Self {
+            conn: Mutex::new(conn),
+        })
     }
 
     /// Open an in-memory database.  Only useful for tests.
@@ -105,7 +107,9 @@ impl IocSqliteStore {
         let conn = Connection::open_in_memory()?;
         conn.pragma_update(None, "foreign_keys", "ON")?;
         conn.execute_batch(INIT_SQL)?;
-        Ok(Self { conn: Mutex::new(conn) })
+        Ok(Self {
+            conn: Mutex::new(conn),
+        })
     }
 }
 
@@ -145,18 +149,17 @@ fn ts_to_i64(ts: DateTime<Utc>) -> i64 {
 }
 
 fn ts_from_i64(secs: i64) -> DateTime<Utc> {
-    Utc.timestamp_opt(secs, 0)
-        .single()
-        .unwrap_or_else(Utc::now)
+    Utc.timestamp_opt(secs, 0).single().unwrap_or_else(Utc::now)
 }
 
 // ── IocPersistence impl ──────────────────────────────────────────────────────
 
 impl IocPersistence for IocSqliteStore {
     fn get_feed_meta(&self, name: &str) -> Result<Option<FeedMeta>, PersistenceError> {
-        let conn = self.conn.lock().map_err(|e| {
-            PersistenceError::Storage(format!("ioc store mutex poisoned: {e}"))
-        })?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| PersistenceError::Storage(format!("ioc store mutex poisoned: {e}")))?;
         let mut stmt = conn
             .prepare(
                 "SELECT name, source_url, etag, last_modified, fetched_at
@@ -182,9 +185,10 @@ impl IocPersistence for IocSqliteStore {
     }
 
     fn upsert_feed_meta(&self, meta: &FeedMeta) -> Result<(), PersistenceError> {
-        let conn = self.conn.lock().map_err(|e| {
-            PersistenceError::Storage(format!("ioc store mutex poisoned: {e}"))
-        })?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| PersistenceError::Storage(format!("ioc store mutex poisoned: {e}")))?;
         conn.execute(
             "INSERT INTO ioc_feeds (name, source_url, etag, last_modified, fetched_at)
              VALUES (?1, ?2, ?3, ?4, ?5)
@@ -205,14 +209,11 @@ impl IocPersistence for IocSqliteStore {
         Ok(())
     }
 
-    fn replace_feed_iocs(
-        &self,
-        feed: &str,
-        entries: &[IocEntry],
-    ) -> Result<(), PersistenceError> {
-        let mut conn = self.conn.lock().map_err(|e| {
-            PersistenceError::Storage(format!("ioc store mutex poisoned: {e}"))
-        })?;
+    fn replace_feed_iocs(&self, feed: &str, entries: &[IocEntry]) -> Result<(), PersistenceError> {
+        let mut conn = self
+            .conn
+            .lock()
+            .map_err(|e| PersistenceError::Storage(format!("ioc store mutex poisoned: {e}")))?;
         let tx = conn.transaction().map_err(map_sqlite)?;
         tx.execute("DELETE FROM iocs WHERE feed = ?1", params![feed])
             .map_err(map_sqlite)?;
@@ -243,17 +244,13 @@ impl IocPersistence for IocSqliteStore {
         Ok(())
     }
 
-    fn load_all(
-        &self,
-        sink: &mut dyn FnMut(IocEntry),
-    ) -> Result<usize, PersistenceError> {
-        let conn = self.conn.lock().map_err(|e| {
-            PersistenceError::Storage(format!("ioc store mutex poisoned: {e}"))
-        })?;
+    fn load_all(&self, sink: &mut dyn FnMut(IocEntry)) -> Result<usize, PersistenceError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| PersistenceError::Storage(format!("ioc store mutex poisoned: {e}")))?;
         let mut stmt = conn
-            .prepare(
-                "SELECT ioc_type, value, source, tags, added_at FROM iocs",
-            )
+            .prepare("SELECT ioc_type, value, source, tags, added_at FROM iocs")
             .map_err(map_sqlite)?;
 
         let rows = stmt
@@ -270,8 +267,7 @@ impl IocPersistence for IocSqliteStore {
 
         let mut count = 0usize;
         for row in rows {
-            let (ioc_type_s, value, source, tags_json, added_at) =
-                row.map_err(map_sqlite)?;
+            let (ioc_type_s, value, source, tags_json, added_at) = row.map_err(map_sqlite)?;
             let Some(ioc_type) = ioc_type_from_str(&ioc_type_s) else {
                 tracing::warn!(
                     ioc_type = ioc_type_s,
@@ -279,8 +275,7 @@ impl IocPersistence for IocSqliteStore {
                 );
                 continue;
             };
-            let tags: Vec<String> =
-                serde_json::from_str(&tags_json).map_err(map_json)?;
+            let tags: Vec<String> = serde_json::from_str(&tags_json).map_err(map_json)?;
             sink(IocEntry {
                 ioc_type,
                 value,
@@ -314,7 +309,10 @@ mod tests {
     #[test]
     fn upsert_and_fetch_feed_meta() {
         let store = IocSqliteStore::open_in_memory().unwrap();
-        assert!(store.get_feed_meta("abuse.ch/malwarebazaar").unwrap().is_none());
+        assert!(store
+            .get_feed_meta("abuse.ch/malwarebazaar")
+            .unwrap()
+            .is_none());
 
         let meta = FeedMeta {
             name: "abuse.ch/malwarebazaar".into(),
@@ -325,7 +323,10 @@ mod tests {
         };
         store.upsert_feed_meta(&meta).unwrap();
 
-        let got = store.get_feed_meta("abuse.ch/malwarebazaar").unwrap().unwrap();
+        let got = store
+            .get_feed_meta("abuse.ch/malwarebazaar")
+            .unwrap()
+            .unwrap();
         assert_eq!(got.etag.as_deref(), Some("\"abc123\""));
         assert_eq!(got.source_url, "https://example/feed");
     }
@@ -400,10 +401,8 @@ mod tests {
     fn reboot_simulation_reloads_from_disk() {
         // Use a file-backed DB in a temp directory so we can drop the first
         // store, open a second one, and verify the data persists.
-        let tmp = std::env::temp_dir().join(format!(
-            "arqenor-ioc-test-{}.db",
-            uuid::Uuid::new_v4()
-        ));
+        let tmp =
+            std::env::temp_dir().join(format!("arqenor-ioc-test-{}.db", uuid::Uuid::new_v4()));
         let path = tmp.as_path();
 
         {
@@ -418,8 +417,16 @@ mod tests {
                 })
                 .unwrap();
             let entries = vec![
-                mk_entry(IocType::Sha256Hash, &"a".repeat(64), "abuse.ch/malwarebazaar"),
-                mk_entry(IocType::Sha256Hash, &"b".repeat(64), "abuse.ch/malwarebazaar"),
+                mk_entry(
+                    IocType::Sha256Hash,
+                    &"a".repeat(64),
+                    "abuse.ch/malwarebazaar",
+                ),
+                mk_entry(
+                    IocType::Sha256Hash,
+                    &"b".repeat(64),
+                    "abuse.ch/malwarebazaar",
+                ),
             ];
             store
                 .replace_feed_iocs("abuse.ch/malwarebazaar", &entries)

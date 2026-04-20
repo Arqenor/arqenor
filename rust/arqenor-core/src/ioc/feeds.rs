@@ -21,7 +21,9 @@
 //! inside a transaction.
 
 use chrono::Utc;
-use reqwest::header::{HeaderMap, HeaderValue, ETAG, IF_MODIFIED_SINCE, IF_NONE_MATCH, LAST_MODIFIED};
+use reqwest::header::{
+    HeaderMap, HeaderValue, ETAG, IF_MODIFIED_SINCE, IF_NONE_MATCH, LAST_MODIFIED,
+};
 use reqwest::StatusCode;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -388,7 +390,11 @@ async fn refresh_one(
             tracing::info!(feed, "feed unchanged (304 Not Modified)");
             Ok((FeedRefresh::NotModified, Vec::new()))
         }
-        FetchOutcome::Modified { body, etag, last_modified } => {
+        FetchOutcome::Modified {
+            body,
+            etag,
+            last_modified,
+        } => {
             let entries = parse(&body);
             let count = entries.len();
 
@@ -434,7 +440,11 @@ pub async fn refresh_all_feeds_with_persist(
     let mut total = 0usize;
 
     let jobs: [FeedJob; 4] = [
-        (FEED_MALWARE_BAZAAR, MALWARE_BAZAAR_URL, parse_malware_bazaar),
+        (
+            FEED_MALWARE_BAZAAR,
+            MALWARE_BAZAAR_URL,
+            parse_malware_bazaar,
+        ),
         (FEED_FEODO, FEODO_TRACKER_URL, parse_feodo),
         (FEED_URLHAUS, URLHAUS_URL, parse_urlhaus),
         (FEED_THREATFOX, THREATFOX_URL, parse_threatfox),

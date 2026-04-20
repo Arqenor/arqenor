@@ -112,10 +112,8 @@ where
                 KeyCode::Char('5') => app.switch_tab(Tab::Alerts),
 
                 // Detail panel toggle
-                KeyCode::Enter => {
-                    if app.tab == Tab::Processes {
-                        app.detail_open = !app.detail_open;
-                    }
+                KeyCode::Enter if app.tab == Tab::Processes => {
+                    app.detail_open = !app.detail_open;
                 }
 
                 // Filter
@@ -140,56 +138,42 @@ where
                 }
 
                 // Action menu (Processes tab only)
-                KeyCode::Char('a') | KeyCode::Char('A') => {
-                    if app.tab == Tab::Processes && app.selected_process().is_some() {
-                        app.action_menu = true;
-                    }
+                KeyCode::Char('a') | KeyCode::Char('A')
+                    if app.tab == Tab::Processes && app.selected_process().is_some() =>
+                {
+                    app.action_menu = true;
                 }
 
                 // Baseline toggle (Processes tab only)
-                KeyCode::Char('w') | KeyCode::Char('W') => {
-                    if app.tab == Tab::Processes {
-                        app.toggle_baseline();
-                    }
+                KeyCode::Char('w') | KeyCode::Char('W') if app.tab == Tab::Processes => {
+                    app.toggle_baseline();
                 }
 
                 // Sort columns (Processes tab only)
-                KeyCode::Char('F') | KeyCode::Char('f') => {
-                    if app.tab == Tab::Processes {
-                        app.toggle_sort(SortCol::Risk);
-                    }
+                KeyCode::Char('F') | KeyCode::Char('f') if app.tab == Tab::Processes => {
+                    app.toggle_sort(SortCol::Risk);
                 }
-                KeyCode::Char('P') => {
-                    if app.tab == Tab::Processes {
-                        app.toggle_sort(SortCol::Pid);
-                    }
+                KeyCode::Char('P') if app.tab == Tab::Processes => {
+                    app.toggle_sort(SortCol::Pid);
                 }
-                KeyCode::Char('N') => {
-                    if app.tab == Tab::Processes {
-                        app.toggle_sort(SortCol::Name);
-                    }
+                KeyCode::Char('N') if app.tab == Tab::Processes => {
+                    app.toggle_sort(SortCol::Name);
                 }
-                KeyCode::Char('X') => {
-                    if app.tab == Tab::Processes {
-                        app.toggle_sort(SortCol::Path);
-                    }
+                KeyCode::Char('X') if app.tab == Tab::Processes => {
+                    app.toggle_sort(SortCol::Path);
                 }
 
                 // Tree mode toggle (Processes tab only)
-                KeyCode::Char('t') | KeyCode::Char('T') => {
-                    if app.tab == Tab::Processes {
-                        app.tree_mode = !app.tree_mode;
-                        app.selected = 0;
-                        app.proc_state.select(Some(0));
-                    }
+                KeyCode::Char('t') | KeyCode::Char('T') if app.tab == Tab::Processes => {
+                    app.tree_mode = !app.tree_mode;
+                    app.selected = 0;
+                    app.proc_state.select(Some(0));
                 }
 
-                KeyCode::Char('l') | KeyCode::Char('L') => {
-                    if app.tab == Tab::Connections {
-                        app.hide_loopback = !app.hide_loopback;
-                        app.selected = 0;
-                        app.conn_state.select(Some(0));
-                    }
+                KeyCode::Char('l') | KeyCode::Char('L') if app.tab == Tab::Connections => {
+                    app.hide_loopback = !app.hide_loopback;
+                    app.selected = 0;
+                    app.conn_state.select(Some(0));
                 }
 
                 _ => {}
