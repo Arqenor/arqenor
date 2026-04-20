@@ -54,21 +54,20 @@ impl HostAnalyzerService {
                 .map(std::path::PathBuf::from)
                 .unwrap_or_else(|_| std::path::PathBuf::from("."));
 
-            let store: Option<Arc<dyn IocPersistence>> =
-                match std::fs::create_dir_all(&data_dir) {
-                    Err(e) => {
-                        tracing::warn!(%e, path = %data_dir.display(),
+            let store: Option<Arc<dyn IocPersistence>> = match std::fs::create_dir_all(&data_dir) {
+                Err(e) => {
+                    tracing::warn!(%e, path = %data_dir.display(),
                             "create data_dir failed, IOC persistence disabled");
+                    None
+                }
+                Ok(()) => match IocSqliteStore::open(&data_dir.join("ioc.db")) {
+                    Ok(s) => Some(Arc::new(s)),
+                    Err(e) => {
+                        tracing::warn!(%e, "open IOC store failed, falling back to in-memory");
                         None
                     }
-                    Ok(()) => match IocSqliteStore::open(&data_dir.join("ioc.db")) {
-                        Ok(s) => Some(Arc::new(s)),
-                        Err(e) => {
-                            tracing::warn!(%e, "open IOC store failed, falling back to in-memory");
-                            None
-                        }
-                    },
-                };
+                },
+            };
 
             {
                 let mut guard = db_clone.write().await;
@@ -152,9 +151,7 @@ fn chrono_to_proto_ts(t: chrono::DateTime<chrono::Utc>) -> prost_types::Timestam
     }
 }
 
-fn core_process_info_to_proto(
-    p: arqenor_core::models::process::ProcessInfo,
-) -> ProtoProcessInfo {
+fn core_process_info_to_proto(p: arqenor_core::models::process::ProcessInfo) -> ProtoProcessInfo {
     ProtoProcessInfo {
         pid: p.pid,
         ppid: p.ppid,
@@ -463,7 +460,9 @@ mod tests {
     use super::*;
     use arqenor_core::models::{
         file_event::{FileEvent as CoreFileEvent, FileEventKind},
-        process::{ProcessEvent as CoreProcessEvent, ProcessEventKind, ProcessInfo as CoreProcessInfo},
+        process::{
+            ProcessEvent as CoreProcessEvent, ProcessEventKind, ProcessInfo as CoreProcessInfo,
+        },
     };
     use chrono::Utc;
     use uuid::Uuid;
@@ -534,9 +533,18 @@ mod tests {
         assert_eq!(proto.kind, crate::host::file_event::Kind::Created as i32);
 
         for (core_kind, expected) in [
-            (FileEventKind::Modified, crate::host::file_event::Kind::Modified),
-            (FileEventKind::Deleted, crate::host::file_event::Kind::Deleted),
-            (FileEventKind::Renamed, crate::host::file_event::Kind::Renamed),
+            (
+                FileEventKind::Modified,
+                crate::host::file_event::Kind::Modified,
+            ),
+            (
+                FileEventKind::Deleted,
+                crate::host::file_event::Kind::Deleted,
+            ),
+            (
+                FileEventKind::Renamed,
+                crate::host::file_event::Kind::Renamed,
+            ),
         ] {
             let mut e = base.clone();
             e.kind = core_kind;

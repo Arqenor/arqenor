@@ -67,18 +67,17 @@ pub async fn run(args: WatchArgs) -> Result<()> {
         // path (in-memory only, unconditional refresh) — never crash.
         let data_dir = resolve_data_dir(args.data_dir.as_deref(), &args.db);
         let ioc_db_path = data_dir.join("ioc.db");
-        let store: Option<Arc<dyn IocPersistence>> =
-            match open_ioc_store(&data_dir, &ioc_db_path) {
-                Ok(s) => Some(s),
-                Err(e) => {
-                    warn!(
-                        path = %ioc_db_path.display(),
-                        error = %e,
-                        "failed to open IOC persistence store; falling back to in-memory only",
-                    );
-                    None
-                }
-            };
+        let store: Option<Arc<dyn IocPersistence>> = match open_ioc_store(&data_dir, &ioc_db_path) {
+            Ok(s) => Some(s),
+            Err(e) => {
+                warn!(
+                    path = %ioc_db_path.display(),
+                    error = %e,
+                    "failed to open IOC persistence store; falling back to in-memory only",
+                );
+                None
+            }
+        };
 
         // Warm the in-memory DB from any previously persisted feeds so the
         // pipeline is usable immediately, even when offline.
@@ -86,10 +85,15 @@ pub async fn run(args: WatchArgs) -> Result<()> {
             let mut guard = db.write().await;
             match load_from_store(s.as_ref(), &mut guard) {
                 Ok(n) if n > 0 => {
-                    println!("  IOC cache: {n} indicators restored from {}", ioc_db_path.display());
+                    println!(
+                        "  IOC cache: {n} indicators restored from {}",
+                        ioc_db_path.display()
+                    );
                 }
                 Ok(_) => {
-                    tracing::info!("IOC persistent store is empty; relying on initial network refresh");
+                    tracing::info!(
+                        "IOC persistent store is empty; relying on initial network refresh"
+                    );
                 }
                 Err(e) => {
                     warn!(error = %e, "failed to warm IOC database from persistent store");
@@ -100,15 +104,13 @@ pub async fn run(args: WatchArgs) -> Result<()> {
         // Initial feed refresh — persists deltas when a store is available.
         {
             let mut guard = db.write().await;
-            let loaded = feeds::refresh_all_feeds_with_persist(
-                &mut guard,
-                store.as_deref(),
-            )
-            .await;
+            let loaded = feeds::refresh_all_feeds_with_persist(&mut guard, store.as_deref()).await;
             if loaded > 0 {
                 println!("  IOC feeds: {loaded} indicators loaded");
             } else if store.is_some() {
-                tracing::info!("IOC network refresh returned 0 new indicators (cache still authoritative)");
+                tracing::info!(
+                    "IOC network refresh returned 0 new indicators (cache still authoritative)"
+                );
             } else {
                 warn!("IOC feed load returned 0 indicators (offline or error)");
             }
@@ -117,11 +119,7 @@ pub async fn run(args: WatchArgs) -> Result<()> {
         // Background refresh every 4 hours — persist-aware when available.
         let interval = std::time::Duration::from_secs(4 * 3600);
         if let Some(ref s) = store {
-            feeds::spawn_feed_refresh_loop_with_persist(
-                Arc::clone(&db),
-                Arc::clone(s),
-                interval,
-            );
+            feeds::spawn_feed_refresh_loop_with_persist(Arc::clone(&db), Arc::clone(s), interval);
         } else {
             feeds::spawn_feed_refresh_loop(Arc::clone(&db), interval);
         }
@@ -274,17 +272,13 @@ pub fn resolve_data_dir(explicit: Option<&Path>, alert_db: &Path) -> PathBuf {
 /// exists before delegating to [`IocSqliteStore::open`].  All failures are
 /// returned as `anyhow::Error` so the caller can decide whether to warn or
 /// propagate — in this CLI we always warn and fall back.
-pub fn open_ioc_store(
-    data_dir: &Path,
-    db_path: &Path,
-) -> Result<Arc<dyn IocPersistence>> {
+pub fn open_ioc_store(data_dir: &Path, db_path: &Path) -> Result<Arc<dyn IocPersistence>> {
     if !data_dir.as_os_str().is_empty() && !data_dir.exists() {
-        std::fs::create_dir_all(data_dir).map_err(|e| {
-            anyhow::anyhow!("cannot create data dir {}: {e}", data_dir.display())
-        })?;
+        std::fs::create_dir_all(data_dir)
+            .map_err(|e| anyhow::anyhow!("cannot create data dir {}: {e}", data_dir.display()))?;
     }
-    let store = IocSqliteStore::open(db_path)
-        .map_err(|e| anyhow::anyhow!("sqlite open failed: {e}"))?;
+    let store =
+        IocSqliteStore::open(db_path).map_err(|e| anyhow::anyhow!("sqlite open failed: {e}"))?;
     Ok(Arc::new(store))
 }
 

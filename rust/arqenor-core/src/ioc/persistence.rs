@@ -87,21 +87,14 @@ pub trait IocPersistence: Send + Sync {
     /// never observe a partially-updated feed.  Entries whose `source` field
     /// differs from `feed` are silently accepted — the caller is trusted to
     /// group entries correctly.
-    fn replace_feed_iocs(
-        &self,
-        feed: &str,
-        entries: &[IocEntry],
-    ) -> Result<(), PersistenceError>;
+    fn replace_feed_iocs(&self, feed: &str, entries: &[IocEntry]) -> Result<(), PersistenceError>;
 
     /// Iterate every IOC row across every feed and feed them to `sink`.
     ///
     /// Used at boot to rebuild the in-memory [`IocDatabase`].  The sink
     /// callback is invoked once per row; implementations should stream rows
     /// rather than buffer the whole dataset.
-    fn load_all(
-        &self,
-        sink: &mut dyn FnMut(IocEntry),
-    ) -> Result<usize, PersistenceError>;
+    fn load_all(&self, sink: &mut dyn FnMut(IocEntry)) -> Result<usize, PersistenceError>;
 }
 
 /// Populate `db` from `store` — the offline-ready boot path.
