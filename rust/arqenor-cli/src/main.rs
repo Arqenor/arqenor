@@ -1,6 +1,5 @@
-mod commands;
-
 use anyhow::Result;
+use arqenor_cli::commands;
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]

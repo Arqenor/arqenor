@@ -4,9 +4,9 @@
 //!
 //!   - **B2** — `execve`/`execveat` tracepoint → process execution (T1059)
 //!   - **B3** — `do_mmap` kprobe (RWX anonymous pages) + `sys_enter_ptrace`
-//!              tracepoint → memory injection (T1055, T1055.008)
+//!     tracepoint → memory injection (T1055, T1055.008)
 //!   - **B4** — `sys_enter_openat` tracepoint on `/etc/ld.so.preload` and
-//!              `/etc/cron*` → persistence (T1574.006, T1053.003)
+//!     `/etc/cron*` → persistence (T1574.006, T1053.003)
 //!   - **B5** — `commit_creds` kprobe → uid 0 escalation (T1068)
 //!   - **B6** — `do_init_module` kprobe → kernel module load / rootkit (T1014)
 //!

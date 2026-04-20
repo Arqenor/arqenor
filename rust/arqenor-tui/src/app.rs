@@ -662,8 +662,10 @@ impl App {
                 (SortCol::Risk, SortDir::Asc) => {
                     result.sort_by(|a, b| a.score.cmp(&b.score).then(a.info.name.cmp(&b.info.name)))
                 }
-                (SortCol::Pid, SortDir::Desc) => result.sort_by(|a, b| b.info.pid.cmp(&a.info.pid)),
-                (SortCol::Pid, SortDir::Asc) => result.sort_by(|a, b| a.info.pid.cmp(&b.info.pid)),
+                (SortCol::Pid, SortDir::Desc) => {
+                    result.sort_by_key(|p| std::cmp::Reverse(p.info.pid))
+                }
+                (SortCol::Pid, SortDir::Asc) => result.sort_by_key(|p| p.info.pid),
                 (SortCol::Name, SortDir::Desc) => {
                     result.sort_by(|a, b| b.info.name.cmp(&a.info.name))
                 }

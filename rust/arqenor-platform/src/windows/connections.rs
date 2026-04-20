@@ -379,9 +379,7 @@ mod tests {
     #[test]
     fn simulated_tcp6_row_maps_to_connection_info() {
         // fe80::1
-        let local_addr: [u8; 16] = [
-            0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x01,
-        ];
+        let local_addr: [u8; 16] = [0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x01];
         // 2001:db8::2
         let remote_addr: [u8; 16] = [
             0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x02,
