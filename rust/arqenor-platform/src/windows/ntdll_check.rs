@@ -261,7 +261,7 @@ fn parse_exports(pe: &[u8]) -> Option<Vec<ExportEntry>> {
         return None;
     }
 
-    let export_file_off = rva_to_file_offset_raw(pe, pe_off, export_rva as u32)? as usize;
+    let export_file_off = rva_to_file_offset_raw(pe, pe_off, export_rva as u32)?;
 
     if export_file_off + 40 > pe.len() {
         return None;
@@ -272,9 +272,9 @@ fn parse_exports(pe: &[u8]) -> Option<Vec<ExportEntry>> {
     let addr_of_names_rva = read_u32(pe, export_file_off + 32);
     let addr_of_ordinals_rva = read_u32(pe, export_file_off + 36);
 
-    let fn_table = rva_to_file_offset_raw(pe, pe_off, addr_of_functions_rva)? as usize;
-    let name_table = rva_to_file_offset_raw(pe, pe_off, addr_of_names_rva)? as usize;
-    let ord_table = rva_to_file_offset_raw(pe, pe_off, addr_of_ordinals_rva)? as usize;
+    let fn_table = rva_to_file_offset_raw(pe, pe_off, addr_of_functions_rva)?;
+    let name_table = rva_to_file_offset_raw(pe, pe_off, addr_of_names_rva)?;
+    let ord_table = rva_to_file_offset_raw(pe, pe_off, addr_of_ordinals_rva)?;
 
     let mut exports = Vec::with_capacity(num_names);
 
