@@ -10,6 +10,11 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# Least-privilege default for every job; individual jobs (e.g. `audit`)
+# expand this where they need to publish check-runs or upload artifacts.
+permissions:
+  contents: read
+
 env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: "-Dwarnings"
@@ -134,3 +139,24 @@ jobs:
       - name: go test
         working-directory: go
         run: go test -race -count=1 ./...
+
+  # ─────────────────────────────────────────────────────────────
+  # cargo-audit — RustSec advisory database scan
+  # Non-blocking for first adoption (continue-on-error: true) —
+  # we want signal, not a release blocker. Tighten by removing
+  # continue-on-error once the workspace is clean and pinned.
+  # ─────────────────────────────────────────────────────────────
+  audit:
+    name: cargo-audit
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    # `rustsec/audit-check` publishes its findings as a check-run, which
+    # requires `checks: write` on top of the default `contents: read`.
+    permissions:
+      contents: read
+      checks: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: rustsec/audit-check@v2.0.0
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
