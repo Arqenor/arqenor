@@ -56,6 +56,13 @@ jobs:
           # GHA runners ship a "bpftool" stub from linux-tools-common that
           # exits non-zero when no matching kernel package is installed.
           # Probe with ``bpftool version`` to detect a real installation.
+          #
+          # NOTE — since B7 (2026-04-26) the loader actually attaches the 5
+          # probes via libbpf-cargo-generated skeletons. Building the crate
+          # requires both vmlinux.h *and* a working bpftool/libbpf chain. The
+          # SKIP_EBPF fallback below remains so transient runner regressions
+          # don't take down the whole CI; remove the skip path once the
+          # ubuntu-latest runner stabilises BTF + bpftool.
           if [ -r /sys/kernel/btf/vmlinux ] && sudo bpftool version >/dev/null 2>&1; then
             if sudo bpftool btf dump file /sys/kernel/btf/vmlinux format c \
                  > arqenor-ebpf/src/probes/vmlinux.h; then

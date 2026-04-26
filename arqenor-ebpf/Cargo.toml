@@ -7,10 +7,19 @@ edition = "2021"
 tracing = { workspace = true }
 serde   = { workspace = true }
 
+# `thiserror` is host-side only (the crate exposes typed errors from the
+# loader). Kept platform-gated to avoid pulling it on Windows where the
+# loader module is `cfg`-stripped entirely.
 [target.'cfg(target_os = "linux")'.dependencies]
-libbpf-rs = "0.26"
-tokio     = { workspace = true }
-anyhow    = { workspace = true }
+# NOTE: pinned to 0.24 — API surface used here (`SkeletonBuilder`,
+# `OpenObject`, `progs_mut().handle_*().attach_*()`, `RingBufferBuilder`)
+# is stable in 0.24.x. Newer 0.25/0.26 releases changed the open/load
+# split (`MaybeUninit<OpenObject>` borrow lifetime) and the progs accessor
+# names — re-validate every field & method before bumping.
+libbpf-rs    = "0.24"
+thiserror    = { workspace = true }
+tokio        = { workspace = true }
 
 [target.'cfg(target_os = "linux")'.build-dependencies]
-libbpf-cargo = "0.26"
+# Must stay in lockstep with libbpf-rs major.minor.
+libbpf-cargo = "0.24"

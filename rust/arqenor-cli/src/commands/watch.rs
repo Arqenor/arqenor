@@ -192,7 +192,14 @@ pub async fn run(args: WatchArgs) -> Result<()> {
     {
         tokio::spawn(run_windows_host_scans(scan_tx));
     }
-    #[cfg(not(target_os = "windows"))]
+    // ── eBPF kernel telemetry (Linux: execve, RWX, ptrace, creds, ld.so.preload, cron) ──
+    #[cfg(target_os = "linux")]
+    {
+        if let Err(e) = spawn_ebpf_bridge(scan_tx) {
+            warn!("eBPF kernel telemetry unavailable: {e}");
+        }
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "linux")))]
     drop(scan_tx);
 
     // ── DB writer thread ──────────────────────────────────────────────────────
@@ -451,5 +458,199 @@ async fn run_windows_host_scans(scan_tx: mpsc::Sender<Alert>) {
                 }
             }
         }
+
+        // ── YARA memory scan ───────────────────────────────────────────
+        #[cfg(feature = "yara")]
+        if !run_yara_scan(&scan_tx).await {
+            return;
+        }
     }
+}
+
+/// Run a single YARA sweep across every accessible process and forward any
+/// matches as alerts on `scan_tx`.  Returns `false` when the channel is closed
+/// so the host-scan loop can exit cleanly.
+#[cfg(all(target_os = "windows", feature = "yara"))]
+async fn run_yara_scan(scan_tx: &mpsc::Sender<Alert>) -> bool {
+    use arqenor_platform::yara_scan::YaraScanner;
+
+    // Compile the builtin ruleset once per sweep.  Compilation is cheap
+    // relative to the 5-minute interval so we do it each tick to pick up
+    // future hot-reloaded rules without restructuring the loop.
+    let scanner = match tokio::task::spawn_blocking(YaraScanner::new).await {
+        Ok(Ok(s)) => s,
+        Ok(Err(e)) => {
+            warn!("YARA scanner init failed: {e}");
+            return true;
+        }
+        Err(e) => {
+            warn!("YARA scanner init task panicked: {e}");
+            return true;
+        }
+    };
+
+    let scanner_for_blocking = scanner.clone();
+    let results = match tokio::task::spawn_blocking(move || {
+        scanner_for_blocking.scan_all_processes()
+    })
+    .await
+    {
+        Ok(r) => r,
+        Err(e) => {
+            warn!("YARA scan task panicked: {e}");
+            return true;
+        }
+    };
+
+    for result in &results {
+        for alert in scanner.matches_to_alerts(result) {
+            if scan_tx.send(alert).await.is_err() {
+                return false;
+            }
+        }
+    }
+    true
+}
+
+// ── eBPF bridge (Linux) ────────────────────────────────────────────────────
+//
+// Boots `arqenor-ebpf::EbpfAgent` and forwards typed kernel events as
+// pipeline `Alert`s on `scan_tx`. We deliberately funnel through the existing
+// `scan_rx` lane rather than adding a dedicated 5th input to
+// `DetectionPipeline`: kernel telemetry is conceptually the same kind of
+// "external observation that produces an alert" as the host scan loop, and
+// `with_scan_alerts` already routes through the correlation engine.
+//
+// `ProcessExec` events are not surfaced as alerts on their own — they would
+// flood the alert stream on any active host. The execve probe is loaded for
+// future correlation rules; for now its events are observability-only and
+// dropped here. Every other kernel event maps to a `SENT-EBPF-*` alert.
+#[cfg(target_os = "linux")]
+fn spawn_ebpf_bridge(scan_tx: mpsc::Sender<Alert>) -> Result<()> {
+    use arqenor_ebpf::loader::linux::EbpfAgent;
+
+    let (agent, mut rx) = EbpfAgent::start()
+        .map_err(|e| anyhow::anyhow!("eBPF agent failed to start: {e}"))?;
+
+    let attached = agent.attached_probes();
+    if attached == 0 {
+        warn!("eBPF agent started with 0 probes attached — no kernel events will be ingested");
+        return Ok(());
+    }
+    tracing::info!(probes = attached, "eBPF kernel telemetry online");
+
+    tokio::spawn(async move {
+        // Hold the agent for the lifetime of the bridge task — dropping it
+        // does not detach probes (skeletons are leaked) but keeps the
+        // attached_probes count reachable from this scope.
+        let _agent = agent;
+        while let Some(evt) = rx.recv().await {
+            if let Some(alert) = ebpf_event_to_alert(evt) {
+                if scan_tx.send(alert).await.is_err() {
+                    tracing::debug!("eBPF bridge: scan channel closed, stopping");
+                    break;
+                }
+            }
+        }
+    });
+
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn ebpf_event_to_alert(evt: arqenor_ebpf::events::EbpfEvent) -> Option<Alert> {
+    use arqenor_ebpf::events::EbpfEventKind;
+    use std::collections::HashMap;
+
+    let (kind, attack_id, severity, message, rule_id) = match evt.kind {
+        // Observability-only — would flood on any active workstation.
+        EbpfEventKind::ProcessExec => return None,
+        EbpfEventKind::MemoryRwxMap => (
+            "ebpf_rwx_map",
+            "T1055",
+            Severity::High,
+            format!(
+                "RWX memory mapping by {} (PID {})",
+                evt.comm, evt.pid
+            ),
+            "SENT-EBPF-MMAP",
+        ),
+        EbpfEventKind::PtraceAttach => (
+            "ebpf_ptrace_attach",
+            "T1055.008",
+            Severity::High,
+            format!(
+                "ptrace attach by {} (PID {}) — possible code injection",
+                evt.comm, evt.pid
+            ),
+            "SENT-EBPF-PTRACE",
+        ),
+        EbpfEventKind::CommitCredsEscalation => (
+            "ebpf_creds_escalation",
+            "T1068",
+            Severity::Critical,
+            format!(
+                "credentials escalation by {} (PID {})",
+                evt.comm, evt.pid
+            ),
+            "SENT-EBPF-CREDS",
+        ),
+        EbpfEventKind::KernelModuleLoad => (
+            "ebpf_kernel_module_load",
+            "T1014",
+            Severity::High,
+            format!(
+                "kernel module loaded by {}: {}",
+                evt.comm,
+                evt.filename.as_deref().unwrap_or("?")
+            ),
+            "SENT-EBPF-KMOD",
+        ),
+        EbpfEventKind::LdPreloadWrite => (
+            "ebpf_ld_preload_write",
+            "T1574.006",
+            Severity::Critical,
+            format!(
+                "/etc/ld.so.preload written by {} (PID {})",
+                evt.comm, evt.pid
+            ),
+            "SENT-EBPF-LDPRELD",
+        ),
+        EbpfEventKind::CronWrite => (
+            "ebpf_cron_write",
+            "T1053.003",
+            Severity::Medium,
+            format!(
+                "cron file modified by {} (PID {}): {}",
+                evt.comm,
+                evt.pid,
+                evt.filename.as_deref().unwrap_or("?")
+            ),
+            "SENT-EBPF-CRON",
+        ),
+    };
+
+    let mut metadata = HashMap::new();
+    metadata.insert("pid".into(), evt.pid.to_string());
+    metadata.insert("ppid".into(), evt.ppid.to_string());
+    metadata.insert("uid".into(), evt.uid.to_string());
+    metadata.insert("comm".into(), evt.comm);
+    if let Some(filename) = evt.filename {
+        metadata.insert("filename".into(), filename);
+    }
+    if let Some(extra) = evt.extra {
+        metadata.insert("extra".into(), extra);
+    }
+    metadata.insert("source".into(), "ebpf".into());
+
+    Some(Alert {
+        id: uuid::Uuid::new_v4(),
+        severity,
+        kind: kind.into(),
+        message,
+        occurred_at: chrono::Utc::now(),
+        metadata,
+        rule_id: Some(rule_id.into()),
+        attack_id: Some(attack_id.into()),
+    })
 }

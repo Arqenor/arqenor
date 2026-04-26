@@ -20,5 +20,17 @@ serde_json        = { workspace = true }
 chrono            = { workspace = true }
 uuid              = { workspace = true }
 
+# eBPF kernel telemetry — Linux only. The crate compiles to an empty surface
+# on non-Linux targets (loader is `cfg(target_os = "linux")`), so wiring it
+# here is safe even though the workspace builds on Windows/macOS.
+[target.'cfg(target_os = "linux")'.dependencies]
+arqenor-ebpf = { path = "../../arqenor-ebpf" }
+
+[features]
+default = []
+# Forward to arqenor-platform's `yara` feature so a `cargo build --features yara`
+# at the CLI level pulls in the YARA engine + builtin rule set.
+yara = ["arqenor-platform/yara"]
+
 [dev-dependencies]
 tempfile = "3"
