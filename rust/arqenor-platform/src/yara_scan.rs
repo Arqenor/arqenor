@@ -159,12 +159,12 @@ impl YaraScannerBuilder {
     pub fn build(self) -> Result<YaraScanner, YaraError> {
         let mut compiler = yara_x::Compiler::new();
         for src in &self.sources {
-            compiler.add_source(src.source.as_str()).map_err(|e| {
-                YaraError::Compile {
+            compiler
+                .add_source(src.source.as_str())
+                .map_err(|e| YaraError::Compile {
                     ruleset: src.name.clone(),
                     message: e.to_string(),
-                }
-            })?;
+                })?;
         }
         let rules = compiler.build();
         Ok(YaraScanner {
@@ -254,10 +254,7 @@ impl YaraScanner {
             metadata.insert("image_path".into(), result.image_path.clone());
             metadata.insert("rule_identifier".into(), m.rule_identifier.clone());
             metadata.insert("namespace".into(), m.namespace.clone());
-            metadata.insert(
-                "regions_scanned".into(),
-                result.regions_scanned.to_string(),
-            );
+            metadata.insert("regions_scanned".into(), result.regions_scanned.to_string());
             metadata.insert("bytes_scanned".into(), result.bytes_scanned.to_string());
             if let Some(ref family) = m.metadata.family {
                 metadata.insert("family".into(), family.clone());
@@ -483,8 +480,7 @@ mod platform {
     fn process_image_path(pid: u32) -> Option<String> {
         // SAFETY: handle obtained inline; checked before use.
         unsafe {
-            let handle: HANDLE =
-                OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid).ok()?;
+            let handle: HANDLE = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid).ok()?;
             let mut buf = [0u16; MAX_PATH as usize];
             let mut size = buf.len() as u32;
             let ok = QueryFullProcessImageNameW(

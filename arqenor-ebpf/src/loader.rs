@@ -267,11 +267,7 @@ pub mod linux {
     // failure mode an attacker would benefit from, so we warn loudly.
     // `tracing` rate-limiting is the user's responsibility via subscriber
     // config — we surface the signal honestly.
-    fn try_send_event(
-        probe: &'static str,
-        tx: &mpsc::Sender<EbpfEvent>,
-        event: EbpfEvent,
-    ) {
+    fn try_send_event(probe: &'static str, tx: &mpsc::Sender<EbpfEvent>, event: EbpfEvent) {
         match tx.try_send(event) {
             Ok(()) => {}
             Err(mpsc::error::TrySendError::Full(_)) => {
@@ -612,8 +608,7 @@ pub mod linux {
             // system: if someone changes it (e.g. drops the receiver), this
             // file fails to compile.
             fn _assert_signature(
-            ) -> fn() -> Result<(EbpfAgent, mpsc::Receiver<EbpfEvent>), EbpfLoadError>
-            {
+            ) -> fn() -> Result<(EbpfAgent, mpsc::Receiver<EbpfEvent>), EbpfLoadError> {
                 EbpfAgent::start
             }
             let _ = _assert_signature;

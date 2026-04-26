@@ -529,8 +529,8 @@ async fn run_yara_scan(scan_tx: &mpsc::Sender<Alert>) -> bool {
 fn spawn_ebpf_bridge(scan_tx: mpsc::Sender<Alert>) -> Result<()> {
     use arqenor_ebpf::loader::linux::EbpfAgent;
 
-    let (agent, mut rx) = EbpfAgent::start()
-        .map_err(|e| anyhow::anyhow!("eBPF agent failed to start: {e}"))?;
+    let (agent, mut rx) =
+        EbpfAgent::start().map_err(|e| anyhow::anyhow!("eBPF agent failed to start: {e}"))?;
 
     let attached = agent.attached_probes();
     if attached == 0 {
@@ -569,10 +569,7 @@ fn ebpf_event_to_alert(evt: arqenor_ebpf::events::EbpfEvent) -> Option<Alert> {
             "ebpf_rwx_map",
             "T1055",
             Severity::High,
-            format!(
-                "RWX memory mapping by {} (PID {})",
-                evt.comm, evt.pid
-            ),
+            format!("RWX memory mapping by {} (PID {})", evt.comm, evt.pid),
             "SENT-EBPF-MMAP",
         ),
         EbpfEventKind::PtraceAttach => (
@@ -589,10 +586,7 @@ fn ebpf_event_to_alert(evt: arqenor_ebpf::events::EbpfEvent) -> Option<Alert> {
             "ebpf_creds_escalation",
             "T1068",
             Severity::Critical,
-            format!(
-                "credentials escalation by {} (PID {})",
-                evt.comm, evt.pid
-            ),
+            format!("credentials escalation by {} (PID {})", evt.comm, evt.pid),
             "SENT-EBPF-CREDS",
         ),
         EbpfEventKind::KernelModuleLoad => (
