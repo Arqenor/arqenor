@@ -89,6 +89,15 @@ jobs:
             cargo test --workspace --all-targets
           fi
 
+      # ── Heavy-feature build smoke ─────────────────────────────────────────
+      # The `full-detection` umbrella on arqenor-cli activates `yara`
+      # (yara-x — ~100 transitive crates). Default builds keep these off to
+      # stay fast, so without this step we'd never exercise the heavy path
+      # in CI and a feature-gated regression could slip in. `cargo check`
+      # is enough to catch type/feature errors without doing full codegen.
+      - name: cargo check (--features full-detection)
+        run: cargo check -p arqenor-cli --features full-detection --all-targets
+
   rust-check-windows:
     name: Rust / check (Windows)
     runs-on: windows-latest
