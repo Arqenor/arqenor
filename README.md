@@ -65,7 +65,7 @@ ARQENOR gives independent developers, small teams, and security researchers comm
 | **Threat Intelligence** | IOC database (abuse.ch feeds: MalwareBazaar, Feodo, URLhaus, ThreatFox), auto-refresh 4h |
 | **Alert Correlation** | PID + parent-child grouping, ATT&CK-weighted scoring, incident model |
 | **Memory Forensics** | VAD walk (shellcode detection), process hollowing, NTDLL hook detection |
-| **YARA Scanning** | _Planned_ — in-memory scanning via `yara-x` (pure Rust): Cobalt Strike, Mimikatz, Sliver, Meterpreter, shellcode. No `yara-x` integration yet in `arqenor-platform`. |
+| **YARA Scanning** | Shipped — in-memory scanning via `yara-x` (pure Rust) with 9 embedded rule families: Cobalt Strike, Meterpreter, Mimikatz, Sliver, Brute Ratel, Havoc, generic shellcode, PE injection, encoded PowerShell. Opt-in via the `yara` Cargo feature (off by default to keep clean builds fast): `cargo build --release -p arqenor-cli --features arqenor-platform/yara`. Per-PID `scan_process` is currently Windows-only — Linux/macOS support is tracked in #46. |
 | **BYOVD Detection** | 50 known-vulnerable kernel drivers (LOLDrivers.io blocklist) |
 | **Network Analysis** | C2 beaconing (CV scoring), DNS tunneling, DGA detection, JA4 TLS fingerprinting |
 | **Processes** | Snapshot + streaming monitor, SHA-256 hashing, risk scoring, real-time connection monitoring |
