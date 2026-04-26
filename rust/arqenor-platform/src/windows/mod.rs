@@ -1,6 +1,7 @@
 pub mod byovd;
 pub mod connections;
 pub mod cred_guard;
+pub mod cred_paths;
 pub mod etw_consumer;
 pub mod etw_monitor;
 pub mod etw_tdh;
