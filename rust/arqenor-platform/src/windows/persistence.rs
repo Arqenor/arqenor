@@ -340,19 +340,262 @@ fn enum_com_hijacking() -> Vec<PersistenceEntry> {
 
 // ── B3: DLL Sideloading (T1574.002) ───────────────────────────────────────────
 //
-// TODO: requires psapi/EnumProcessModules (complex winapi integration).
-// A full implementation would enumerate all loaded modules per process via
-// EnumProcessModules and flag DLLs loaded from user-writable locations
-// (Temp, AppData, Downloads, Desktop).
-// Returning empty for now — the PersistenceKind::DllSideloading variant is
-// registered and this function is excluded from detect() until the process
-// enumeration helpers are in place.
+// Walks every running process whose handle we can open with
+// `PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ`, lists its loaded
+// modules via `EnumProcessModules`, and flags any DLL whose full path is
+// rooted under a *user-writable* location (Temp, AppData, Downloads, …).
+//
+// The safe-root list short-circuits the suspicious-root check, so DLLs under
+// `%SystemRoot%`, `%ProgramFiles%`, `%ProgramFiles(x86)%`, the Windows Store
+// staging area, and `%ProgramData%\Microsoft\Windows\` are never reported even
+// when one of those happens to be technically writable.
+//
+// Protected processes (PPL, antimalware, certain system services) reject
+// `OpenProcess` and are silently skipped — this mirrors what every other
+// userspace EDR has to live with.
 
 #[cfg(windows)]
-#[allow(dead_code)]
 fn enum_dll_sideloading() -> Vec<PersistenceEntry> {
-    // TODO: implement via psapi EnumProcessModules
-    Vec::new()
+    use windows::Win32::Foundation::CloseHandle;
+    use windows::Win32::System::Threading::{
+        OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_VM_READ,
+    };
+
+    let pids = enum_process_pids();
+    if pids.is_empty() {
+        return Vec::new();
+    }
+
+    let safe_roots = build_safe_dll_roots();
+    let suspicious_roots = build_suspicious_dll_roots();
+    if suspicious_roots.is_empty() {
+        // No env vars resolved — nothing we can usefully classify.
+        return Vec::new();
+    }
+
+    let mut entries = Vec::new();
+    // Bound the work: even on a busy host this is comfortably above the real
+    // ceiling (~300 procs × ~80 modules) and keeps a single misbehaving target
+    // from monopolising the scan.
+    const MAX_ENTRIES: usize = 8_192;
+
+    for pid in pids {
+        if pid == 0 || entries.len() >= MAX_ENTRIES {
+            continue;
+        }
+
+        // SAFETY: PID is a u32 from EnumProcesses; OpenProcess returns either
+        // an invalid handle (we skip) or a valid one we close below.
+        let handle = unsafe {
+            OpenProcess(
+                PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ,
+                false,
+                pid,
+            )
+        };
+        let handle = match handle {
+            Ok(h) if !h.is_invalid() => h,
+            _ => continue,
+        };
+
+        // First module is the EXE itself; we record it for the host context
+        // and skip it from the sideloading check (an EXE in %TEMP% is a
+        // separate detection — typically already caught by Run keys / tasks).
+        let modules = enum_process_modules(handle);
+        let host_path = modules
+            .first()
+            .map(|h| get_module_filename_w(handle, *h))
+            .unwrap_or_default();
+        let host_name = basename(&host_path);
+
+        for module in modules.iter().skip(1) {
+            if entries.len() >= MAX_ENTRIES {
+                break;
+            }
+            let dll_path = get_module_filename_w(handle, *module);
+            if dll_path.is_empty() {
+                continue;
+            }
+            if !is_suspicious_dll_path(&dll_path, &safe_roots, &suspicious_roots) {
+                continue;
+            }
+            entries.push(PersistenceEntry {
+                kind: PersistenceKind::DllSideloading,
+                name: basename(&dll_path),
+                command: dll_path,
+                location: format!("PID {} ({})", pid, host_name),
+                is_new: false,
+            });
+        }
+
+        // SAFETY: handle came from a successful OpenProcess above.
+        unsafe {
+            let _ = CloseHandle(handle);
+        }
+    }
+
+    entries
+}
+
+/// Enumerate live PIDs via `EnumProcesses`, growing the buffer until it stops
+/// reporting the full needed-size match (which signals a possible truncation).
+#[cfg(windows)]
+fn enum_process_pids() -> Vec<u32> {
+    use windows::Win32::System::ProcessStatus::EnumProcesses;
+
+    let mut capacity: usize = 1024;
+    loop {
+        let mut buf: Vec<u32> = vec![0; capacity];
+        let mut bytes_returned: u32 = 0;
+        let bytes_in_buf = (buf.len() * std::mem::size_of::<u32>()) as u32;
+
+        // SAFETY: buf is contiguous u32 storage of known size.
+        let ok = unsafe { EnumProcesses(buf.as_mut_ptr(), bytes_in_buf, &mut bytes_returned) };
+        if ok.is_err() {
+            return Vec::new();
+        }
+        if bytes_returned >= bytes_in_buf && capacity < 32_768 {
+            // Buffer was likely full — grow and retry.
+            capacity *= 2;
+            continue;
+        }
+        let count = bytes_returned as usize / std::mem::size_of::<u32>();
+        buf.truncate(count);
+        return buf;
+    }
+}
+
+/// Enumerate the loaded module handles for `process`. Returns the EXE handle
+/// first (mirrors what `EnumProcessModules` itself documents), followed by
+/// each loaded DLL. An empty vec means the call failed (access denied, etc.).
+#[cfg(windows)]
+fn enum_process_modules(
+    process: windows::Win32::Foundation::HANDLE,
+) -> Vec<windows::Win32::Foundation::HMODULE> {
+    use windows::Win32::Foundation::HMODULE;
+    use windows::Win32::System::ProcessStatus::EnumProcessModules;
+
+    let mut capacity: usize = 256;
+    loop {
+        let mut buf: Vec<HMODULE> = vec![HMODULE::default(); capacity];
+        let mut needed: u32 = 0;
+        let bytes_in_buf = (buf.len() * std::mem::size_of::<HMODULE>()) as u32;
+
+        // SAFETY: buf is correctly sized.
+        let ok =
+            unsafe { EnumProcessModules(process, buf.as_mut_ptr(), bytes_in_buf, &mut needed) };
+        if ok.is_err() {
+            return Vec::new();
+        }
+        if needed > bytes_in_buf && capacity < 4_096 {
+            capacity = (needed as usize / std::mem::size_of::<HMODULE>()).next_power_of_two();
+            continue;
+        }
+        let count = (needed as usize / std::mem::size_of::<HMODULE>()).min(buf.len());
+        buf.truncate(count);
+        return buf;
+    }
+}
+
+/// Resolve a module handle to its full filesystem path via
+/// `GetModuleFileNameExW`. Returns an empty string on failure.
+#[cfg(windows)]
+fn get_module_filename_w(
+    process: windows::Win32::Foundation::HANDLE,
+    module: windows::Win32::Foundation::HMODULE,
+) -> String {
+    use windows::Win32::System::ProcessStatus::GetModuleFileNameExW;
+
+    // 32 KiB covers \\?\ long paths comfortably; no second probe call needed.
+    let mut buf = [0u16; 32_768];
+    // SAFETY: buf is contiguous u16 storage; len is correctly typed for the API.
+    let len = unsafe { GetModuleFileNameExW(Some(process), Some(module), &mut buf) };
+    if len == 0 {
+        String::new()
+    } else {
+        String::from_utf16_lossy(&buf[..len as usize])
+    }
+}
+
+#[cfg(windows)]
+fn build_suspicious_dll_roots() -> Vec<String> {
+    let mut out = Vec::new();
+    push_env_path(&mut out, "TEMP");
+    push_env_path(&mut out, "LOCALAPPDATA");
+    push_env_path(&mut out, "APPDATA");
+    push_env_path(&mut out, "PUBLIC");
+    if let Ok(profile) = std::env::var("USERPROFILE") {
+        out.push(format!("{}\\Downloads", profile.trim_end_matches('\\')));
+        out.push(format!("{}\\Desktop", profile.trim_end_matches('\\')));
+        out.push(format!("{}\\Documents", profile.trim_end_matches('\\')));
+    }
+    out.iter_mut().for_each(|p| *p = p.to_lowercase());
+    out
+}
+
+#[cfg(windows)]
+fn build_safe_dll_roots() -> Vec<String> {
+    let mut out = Vec::new();
+    push_env_path(&mut out, "SystemRoot"); // C:\Windows — covers System32 / SysWOW64 / Temp
+    push_env_path(&mut out, "ProgramFiles");
+    push_env_path(&mut out, "ProgramFiles(x86)");
+    push_env_path(&mut out, "ProgramW6432");
+    if let Ok(local) = std::env::var("LOCALAPPDATA") {
+        // Windows Store apps + WinGet stage DLLs from inside %LOCALAPPDATA% but
+        // are first-party trusted — keep these out of the "suspicious" bucket.
+        out.push(format!(
+            "{}\\Microsoft\\WindowsApps",
+            local.trim_end_matches('\\')
+        ));
+        out.push(format!(
+            "{}\\Microsoft\\WinGet",
+            local.trim_end_matches('\\')
+        ));
+    }
+    if let Ok(pdata) = std::env::var("ProgramData") {
+        out.push(format!(
+            "{}\\Microsoft\\Windows",
+            pdata.trim_end_matches('\\')
+        ));
+    }
+    out.iter_mut().for_each(|p| *p = p.to_lowercase());
+    out
+}
+
+#[cfg(windows)]
+fn push_env_path(out: &mut Vec<String>, name: &str) {
+    if let Ok(val) = std::env::var(name) {
+        let trimmed = val.trim_end_matches('\\').to_string();
+        if !trimmed.is_empty() {
+            out.push(trimmed);
+        }
+    }
+}
+
+/// Pure policy: is `dll_path` rooted under a user-writable directory that is
+/// **not** also a known safe staging area?  Inputs are expected lowercased on
+/// the root side; this function lowercases the DLL path for comparison.
+fn is_suspicious_dll_path(
+    dll_path: &str,
+    safe_roots: &[String],
+    suspicious_roots: &[String],
+) -> bool {
+    let lower = dll_path.to_lowercase();
+    if safe_roots
+        .iter()
+        .any(|r| !r.is_empty() && lower.starts_with(r))
+    {
+        return false;
+    }
+    suspicious_roots
+        .iter()
+        .any(|r| !r.is_empty() && lower.starts_with(r))
+}
+
+fn basename(path: &str) -> String {
+    path.rsplit_once('\\')
+        .map(|(_, n)| n.to_string())
+        .unwrap_or_else(|| path.to_string())
 }
 
 // ── B4: BITS Jobs (T1197) ─────────────────────────────────────────────────────
@@ -744,7 +987,7 @@ impl PersistenceDetector for WindowsPersistenceDetector {
             entries.extend(enum_scheduled_tasks());
             entries.extend(enum_wmi_subscriptions());
             entries.extend(enum_com_hijacking());
-            // enum_dll_sideloading() excluded — requires psapi process enumeration
+            entries.extend(enum_dll_sideloading());
             entries.extend(enum_active_setup());
             entries.extend(enum_bits_jobs());
             entries.extend(enum_appinit_dlls());
@@ -775,5 +1018,100 @@ impl PersistenceDetector for WindowsPersistenceDetector {
             })
             .collect();
         Ok(new_entries)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn lc(s: &str) -> String {
+        s.to_lowercase()
+    }
+
+    /// A DLL loaded from a user-writable location with no overriding safe
+    /// prefix is suspicious.
+    #[test]
+    fn dll_in_temp_is_suspicious() {
+        let safe = vec![lc(r"C:\Windows"), lc(r"C:\Program Files")];
+        let suspect = vec![
+            lc(r"C:\Users\alice\AppData\Local\Temp"),
+            lc(r"C:\Users\alice\AppData\Local"),
+        ];
+        assert!(is_suspicious_dll_path(
+            r"C:\Users\Alice\AppData\Local\Temp\evil.dll",
+            &safe,
+            &suspect,
+        ));
+    }
+
+    /// Anything under `%SystemRoot%` is trusted, even sub-paths that happen to
+    /// match a writable folder (e.g. `C:\Windows\Temp` is technically in the
+    /// `TEMP` lineage but is a system-owned staging area).
+    #[test]
+    fn dll_under_system_root_is_safe() {
+        let safe = vec![lc(r"C:\Windows")];
+        let suspect = vec![lc(r"C:\Windows\Temp"), lc(r"C:\Users\bob\AppData\Local")];
+        assert!(!is_suspicious_dll_path(
+            r"C:\Windows\System32\kernel32.dll",
+            &safe,
+            &suspect,
+        ));
+        assert!(!is_suspicious_dll_path(
+            r"C:\Windows\Temp\spooler.dll",
+            &safe,
+            &suspect,
+        ));
+    }
+
+    /// Microsoft Store / WinGet stage their binaries under `%LOCALAPPDATA%`
+    /// but should be treated as trusted — the safe-root check must short-
+    /// circuit the suspicious-root match.
+    #[test]
+    fn windowsapps_under_localappdata_is_safe() {
+        let local = r"C:\Users\carol\AppData\Local";
+        let safe = vec![format!("{}\\microsoft\\windowsapps", lc(local))];
+        let suspect = vec![lc(local)];
+        assert!(!is_suspicious_dll_path(
+            r"C:\Users\carol\AppData\Local\Microsoft\WindowsApps\foo.dll",
+            &safe,
+            &suspect,
+        ));
+        // But a sibling path under LocalAppData should still trip.
+        assert!(is_suspicious_dll_path(
+            r"C:\Users\carol\AppData\Local\NotMicrosoft\bad.dll",
+            &safe,
+            &suspect,
+        ));
+    }
+
+    /// A DLL outside both buckets (e.g. on a non-system drive) is not flagged.
+    #[test]
+    fn dll_outside_known_roots_is_not_flagged() {
+        let safe = vec![lc(r"C:\Windows"), lc(r"C:\Program Files")];
+        let suspect = vec![lc(r"C:\Users\dave\AppData\Local\Temp")];
+        assert!(!is_suspicious_dll_path(
+            r"D:\dev\target\debug\my_app.dll",
+            &safe,
+            &suspect,
+        ));
+    }
+
+    /// Empty roots must never produce a false positive.
+    #[test]
+    fn empty_roots_never_flag() {
+        assert!(!is_suspicious_dll_path(
+            r"C:\Users\eve\AppData\Local\Temp\x.dll",
+            &[],
+            &[],
+        ));
+    }
+
+    /// `basename` strips Windows-style paths down to the file name.
+    #[test]
+    fn basename_extracts_filename() {
+        assert_eq!(basename(r"C:\Windows\System32\ntdll.dll"), "ntdll.dll");
+        assert_eq!(basename("ntdll.dll"), "ntdll.dll");
+        assert_eq!(basename(""), "");
     }
 }
