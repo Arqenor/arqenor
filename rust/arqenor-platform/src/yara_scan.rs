@@ -67,6 +67,11 @@ pub enum YaraError {
     ProcessScanUnsupported,
 }
 
+// Constructor only used by the Windows `scan_process` impl below — gating
+// avoids a dead-code error on Linux/macOS when the `yara` Cargo feature is
+// enabled but the platform has no real `scan_process` (it returns
+// `ProcessScanUnsupported` instead).
+#[cfg(windows)]
 impl YaraError {
     fn open_process(pid: u32, source: arqenor_core::error::ArqenorError) -> Self {
         Self::OpenProcess { pid, source }

@@ -98,11 +98,16 @@ ARQENOR gives independent developers, small teams, and security researchers comm
 git clone https://github.com/Arqenor/arqenor.git
 cd arqenor
 
-# 2. Build all Rust binaries
+# 2. Build all Rust binaries (lean — fast clean compile, no YARA)
 cargo build --release \
   -p arqenor-cli \
   -p arqenor-tui \
   -p arqenor-grpc
+
+# 2b. (Recommended for production) build the CLI with the full detection
+#     stack — currently activates in-memory YARA scanning via yara-x.
+#     ~100 extra transitive crates; first compile is noticeably slower.
+cargo build --release -p arqenor-cli --features full-detection
 
 # 3. Build Go orchestrator
 cd go && go build ./cmd/orchestrator && cd ..
