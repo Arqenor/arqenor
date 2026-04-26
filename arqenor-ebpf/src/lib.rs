@@ -23,7 +23,23 @@
 
 pub mod events;
 
-#[cfg(target_os = "linux")]
+// Loader has two implementations selected by `build.rs`:
+//
+// - `loader.rs` — real `libbpf-rs` skeleton load + attach. Compiled when the
+//   build script could find BTF + bpftool and successfully generated the
+//   per-probe `.skel.rs` files in `OUT_DIR`.
+// - `loader_stub.rs` — no-op API-compatible stub. Compiled when build.rs is
+//   invoked with `SKIP_EBPF=1` (CI runners that lack BTF). Exposes the same
+//   `loader::linux::EbpfAgent` symbol so downstream crates need no `cfg`.
+//
+// `build.rs` emits the `ebpf_stubs` cfg via `cargo:rustc-cfg=ebpf_stubs`
+// (and declares it via `cargo:rustc-check-cfg` to avoid rustc 1.80+ warnings).
+
+#[cfg(all(target_os = "linux", not(ebpf_stubs)))]
+pub mod loader;
+
+#[cfg(all(target_os = "linux", ebpf_stubs))]
+#[path = "loader_stub.rs"]
 pub mod loader;
 
 /// Re-export the agent entry-point on Linux.

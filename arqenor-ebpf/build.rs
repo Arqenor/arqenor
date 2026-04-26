@@ -6,16 +6,44 @@
 //!
 //! Generated skeletons land in `$OUT_DIR/{probe}.skel.rs` and are pulled in
 //! by `loader.rs` via `include!(concat!(env!("OUT_DIR"), "/{probe}.skel.rs"))`.
+//!
+//! # SKIP_EBPF stub mode
+//!
+//! When the `SKIP_EBPF=1` env var is set (typically by CI when BTF or
+//! `bpftool` is unavailable), this script emits empty stub `.skel.rs` files
+//! and a `cfg(ebpf_stubs)` flag. The loader module then compiles a no-op
+//! `EbpfAgent::start()` that logs a warning and returns 0 probes attached.
+//! This keeps `cargo --workspace` builds green on runners that cannot
+//! produce real skeletons, without taking the rest of the workspace down
+//! with it.
 
 #[cfg(target_os = "linux")]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    use libbpf_cargo::SkeletonBuilder;
     use std::path::PathBuf;
 
-    let probes_dir = PathBuf::from("src/probes");
-    let out_dir = PathBuf::from(std::env::var("OUT_DIR")?);
+    println!("cargo:rerun-if-env-changed=SKIP_EBPF");
+    println!("cargo:rerun-if-changed=build.rs");
+    // Declare the custom cfg so rustc 1.80+ does not warn on `cfg(ebpf_stubs)`.
+    println!("cargo:rustc-check-cfg=cfg(ebpf_stubs)");
 
+    let out_dir = PathBuf::from(std::env::var("OUT_DIR")?);
     const PROBES: &[&str] = &["execve", "memory", "persistence", "privesc", "rootkit"];
+
+    if std::env::var("SKIP_EBPF").as_deref() == Ok("1") {
+        // Stub mode — write empty skel files so `loader.rs::include!()` resolves
+        // but do NOT invoke clang/libbpf-cargo (which require vmlinux.h + bpftool).
+        for probe in PROBES {
+            std::fs::write(
+                out_dir.join(format!("{probe}.skel.rs")),
+                "// SKIP_EBPF=1 — stub: no real skeleton generated.\n",
+            )?;
+        }
+        println!("cargo:rustc-cfg=ebpf_stubs");
+        return Ok(());
+    }
+
+    use libbpf_cargo::SkeletonBuilder;
+    let probes_dir = PathBuf::from("src/probes");
 
     for probe in PROBES {
         let src = probes_dir.join(format!("{probe}.bpf.c"));
@@ -31,12 +59,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .build_and_generate(&dst)
             .map_err(|e| format!("failed to build {}: {e}", src.display()))?;
 
-        // Re-run the script if the C source changes.
         println!("cargo:rerun-if-changed={}", src.display());
     }
 
     println!("cargo:rerun-if-changed=src/probes/vmlinux.h");
-    println!("cargo:rerun-if-changed=build.rs");
 
     Ok(())
 }
