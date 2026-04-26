@@ -1,6 +1,43 @@
-# Code owners for Arqenor.
+# Code owners for Arqenor (OSS).
 # Docs: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-security/customizing-your-repository/about-code-owners
 #
-# The order is important: the last matching pattern wins.
+# Last matching pattern wins. Order from most-general to most-specific.
+# Combined with the "Protect main" repository ruleset, every PR touching a
+# matched path requires the listed owner's approval before squash-merge.
 
-* @MikeRoss27
+# Catch-all: every PR notifies the maintainer.
+*                                       @MikeRoss27
+
+# ── Detection nucleus: traits, models, correlation, IOC, rules engine ──────
+# Anything here ships into both this repo and arqenor-enterprise via the
+# git dependency on this branch. Breakage propagates downstream.
+rust/arqenor-core/                      @MikeRoss27
+
+# ── Platform layer: ETW, ESF, kernel-adjacent collectors ──────────────────
+rust/arqenor-platform/                  @MikeRoss27
+
+# ── eBPF probes (Linux kernel) ────────────────────────────────────────────
+arqenor-ebpf/                           @MikeRoss27
+
+# ── Wire protocols + RPC surface ──────────────────────────────────────────
+rust/arqenor-grpc/                      @MikeRoss27
+rust/arqenor-store/                     @MikeRoss27
+proto/                                  @MikeRoss27
+
+# ── Go orchestrator ───────────────────────────────────────────────────────
+go/                                     @MikeRoss27
+go.work                                 @MikeRoss27
+go.work.sum                             @MikeRoss27
+
+# ── CI / security policy / repo plumbing ──────────────────────────────────
+.github/workflows/                      @MikeRoss27
+.github/CODEOWNERS                      @MikeRoss27
+SECURITY.md                             @MikeRoss27
+LICENSE                                 @MikeRoss27
+NOTICE                                  @MikeRoss27
+
+# ── Cross-repo contracts ──────────────────────────────────────────────────
+Cargo.toml                              @MikeRoss27
+Cargo.lock                              @MikeRoss27
+CLAUDE.md                               @MikeRoss27
+CONTRIBUTING.md                         @MikeRoss27

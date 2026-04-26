@@ -45,10 +45,15 @@ jobs:
       - name: Verify squash-merge PR provenance
         shell: bash
         run: |
+          # Belt-and-braces: the "Protect main" ruleset already requires a
+          # PR with 1 review and squash-only merging, so the only way to
+          # land a non-squash commit here is an admin bypass. Hard fail
+          # surfaces that bypass loudly in the Actions tab.
           subject=$(git log -1 --pretty=%s)
           echo "Commit subject: ${subject}"
           if ! echo "${subject}" | grep -Eq ' \(#[0-9]+\)$'; then
-            echo "::warning title=Direct push suspected::Commit subject does not end with ' (#NNN)'. Pushes to main should come from squash-merged PRs."
-          else
-            echo "OK: commit references PR ${subject##* }"
+            echo "::error title=Non-squash commit on main::Commit subject does not end with ' (#NNN)' — possible ruleset bypass."
+            git log -1 --pretty=full
+            exit 1
           fi
+          echo "OK: commit references PR ${subject##* }"

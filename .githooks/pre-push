@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+# Pre-push policy guard for arqenor (OSS).
+#
+# Refuses direct pushes to protected branches (main/master). main is
+# already protected server-side by the "Protect main" repository ruleset
+# (linear history, PR with 1 review, squash-only) — this hook is a
+# zero-network-roundtrip mirror so devs catch the mistake before the
+# push leaves the machine.
+#
+# To install:  bash scripts/setup-hooks.sh   (or scripts\setup-hooks.ps1 on Windows)
+# To bypass:   git push --no-verify          (do not normalise this — it should hurt)
+
+set -euo pipefail
+
+PROTECTED_BRANCHES="main master"
+
+while read -r _local_ref _local_sha remote_ref _remote_sha; do
+  for protected in $PROTECTED_BRANCHES; do
+    if [ "$remote_ref" = "refs/heads/$protected" ]; then
+      cat <<EOF >&2
+
+  ❌  Direct push to '$protected' is blocked by .githooks/pre-push
+
+  arqenor main is squash-merge-only. Your changes should land via:
+
+      1. git checkout -b feat/<short-description>     # or fix/, docs/, ci/, chore/, refactor/
+      2. git push -u origin feat/<short-description>
+      3. gh pr create --base main                     # or via the GitHub UI
+      4. squash-merge once reviewed
+
+  See CONTRIBUTING.md for the full flow.
+  Bypass with --no-verify only if you genuinely know what you're doing.
+
+EOF
+      exit 1
+    fi
+  done
+done
+
+exit 0
