@@ -1,9 +1,18 @@
-# ARQENOR
-
-[![CI](https://github.com/Arqenor/arqenor/actions/workflows/ci.yml/badge.svg?branch=dev)](https://github.com/Arqenor/arqenor/actions/workflows/ci.yml)
-[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
-
-**Open-source EDR (Endpoint Detection & Response)** — cross-platform, built in Rust and Go.
+<div align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="images/branding/arqenor-icon-white.png" />
+    <img src="images/branding/arqenor-icon-blue.png" alt="Arqenor" width="96" height="96" />
+  </picture>
+  <h1>ARQENOR</h1>
+  <p><strong>Open-source EDR — cross-platform, built in Rust and Go</strong></p>
+  <p>
+    <a href="https://github.com/Arqenor/arqenor/actions/workflows/ci.yml"><img src="https://github.com/Arqenor/arqenor/actions/workflows/ci.yml/badge.svg?branch=dev" alt="CI" /></a>
+    <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License: Apache 2.0" /></a>
+    <img src="https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20macOS-blue" alt="Platform" />
+    <img src="https://img.shields.io/badge/Rust-1.80%2B-orange" alt="Rust 1.80+" />
+    <img src="https://img.shields.io/badge/Go-1.23%2B-blue" alt="Go 1.23+" />
+  </p>
+</div>
 
 ARQENOR gives independent developers, small teams, and security researchers commercial-grade detection capabilities without the $30/endpoint/month price tag. Real-time monitoring of processes, filesystem, network connections, persistence mechanisms, and memory — with SIGMA rules, IOC threat intelligence, YARA scanning, and alert correlation built in.
 
@@ -222,7 +231,9 @@ See [`docs/roadmap/ROADMAP.md`](docs/roadmap/ROADMAP.md) for the full 6-phase pl
 ARQENOR is **open-core**:
 
 - **Open source** (Apache 2.0, this repo) — `arqenor-core`, `arqenor-platform`, `arqenor-cli`, `arqenor-tui`, `arqenor-grpc`, `arqenor-store`, `arqenor-ebpf`, Go orchestrator
-- **Closed / commercial** (`arqenor-enterprise`) — Windows kernel driver (WDK), ML scorer (PE static analyzer), Tauri desktop app, cloud dashboard, premium threat intelligence feeds, multi-host management, enterprise alerting
+- **Closed / commercial** (`arqenor-enterprise`) — Windows kernel driver (WDK), ML scorer (PE static analyzer with EMBER2024 LightGBM ONNX), native Tauri desktop SOC console, drift telemetry, multi-host management, premium threat intelligence feeds, enterprise alerting
+
+The commercial console consumes this OSS engine over its public crates (`arqenor-core`, `arqenor-platform`) — every detection rule and platform integration lives here.
 
 ---
 
