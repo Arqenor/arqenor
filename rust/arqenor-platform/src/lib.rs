@@ -7,6 +7,11 @@ pub mod windows;
 
 pub mod fim;
 
+#[cfg(feature = "yara")]
+pub mod yara_rules;
+#[cfg(feature = "yara")]
+pub mod yara_scan;
+
 // Fail at compile time on unsupported platforms.
 #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
 compile_error!("ARQENOR: unsupported platform (only windows / linux / macos)");

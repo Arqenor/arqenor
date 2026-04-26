@@ -26,6 +26,19 @@ wmi     = "=0.18.4"
 [features]
 default = []
 firewall-check = []
+# YARA memory scanning — pure-Rust engine via `yara-x`. Off by default because
+# `yara-x` brings ~100 transitive crates and noticeably slows clean builds.
+# Enable explicitly when shipping a build that needs in-memory rule matching.
+yara = ["dep:yara-x"]
+
+[dependencies.yara-x]
+# Pin to 1.15 — yara-x and yara-x-macros must travel together, and crates.io
+# resolution can otherwise mix 1.14 lib with 1.15 macros, producing a wall of
+# `WasmExport has no field…` errors at compile time.
+version  = "=1.15.0"
+optional = true
+# Keep yara-x's default feature set (includes the standard PE/ELF/Mach-O/hash
+# modules that most public YARA rules depend on).
 
 [target.'cfg(target_os = "linux")'.dependencies]
 procfs   = "0.18"
