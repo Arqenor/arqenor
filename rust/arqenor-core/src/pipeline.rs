@@ -527,6 +527,24 @@ impl DetectionPipeline {
 
     // ── Alert emission + correlation ──────────────────────────────────────
 
+    /// Acquire the correlation engine mutex, recovering gracefully from a
+    /// poisoned lock.
+    ///
+    /// Mutex poisoning means a previous holder panicked mid-update — internal
+    /// state may be inconsistent. For a security-monitoring pipeline,
+    /// hard-crashing every subsequent thread is worse than continuing with
+    /// possibly-stale correlation: the engine is window/HashMap based and
+    /// tolerates missing entries. We log once per poisoned access and proceed.
+    fn correlation_guard(&self) -> std::sync::MutexGuard<'_, CorrelationEngine> {
+        self.correlation.lock().unwrap_or_else(|poisoned| {
+            tracing::warn!(
+                "correlation mutex was poisoned by a previous panic; \
+                 continuing with possibly inconsistent state"
+            );
+            poisoned.into_inner()
+        })
+    }
+
     /// Send an alert on the output channel and ingest it into the correlation
     /// engine.  Returns `false` if the alert channel is closed.
     async fn emit_alert(&self, alert: Alert) -> bool {
@@ -534,7 +552,7 @@ impl DetectionPipeline {
 
         // Ingest into correlation engine.
         let escalated_incident = {
-            let mut corr = self.correlation.lock().unwrap();
+            let mut corr = self.correlation_guard();
             corr.ingest(alert.clone()).cloned()
         };
 
@@ -551,7 +569,7 @@ impl DetectionPipeline {
     /// Flush stale incidents from the correlation engine and emit them.
     async fn flush_correlation(&self) {
         let flushed = {
-            let mut corr = self.correlation.lock().unwrap();
+            let mut corr = self.correlation_guard();
             corr.flush_stale()
         };
 
@@ -564,7 +582,7 @@ impl DetectionPipeline {
 
     /// Return a snapshot of active incidents from the correlation engine.
     pub fn active_incidents(&self) -> Vec<Incident> {
-        let corr = self.correlation.lock().unwrap();
+        let corr = self.correlation_guard();
         corr.active_incidents().into_iter().cloned().collect()
     }
 
@@ -864,5 +882,37 @@ fn sigma_match_to_alert(rule: &SigmaRule, fields: &EventFields) -> Alert {
         metadata,
         rule_id: Some(rule.id.clone()),
         attack_id,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::panic::{catch_unwind, AssertUnwindSafe};
+
+    /// A poisoned correlation mutex must not bring down the pipeline.
+    /// Both `active_incidents` and the internal `correlation_guard` recover
+    /// the inner state instead of panicking.
+    #[test]
+    fn correlation_guard_recovers_from_poison() {
+        let (_proc_tx, proc_rx) = mpsc::channel::<ProcessEvent>(1);
+        let (_file_tx, file_rx) = mpsc::channel::<FileEvent>(1);
+        let (alert_tx, _alert_rx) = mpsc::channel::<Alert>(1);
+        let pipeline =
+            DetectionPipeline::new(PipelineConfig::default(), proc_rx, file_rx, alert_tx);
+
+        // Poison the mutex by panicking while holding the lock.
+        let _ = catch_unwind(AssertUnwindSafe(|| {
+            let _g = pipeline.correlation.lock().unwrap();
+            panic!("intentional panic to poison the correlation mutex");
+        }));
+        assert!(pipeline.correlation.is_poisoned());
+
+        // active_incidents must not panic on a poisoned mutex.
+        let incidents = pipeline.active_incidents();
+        assert!(incidents.is_empty());
+
+        // Direct guard helper must also recover.
+        let _g = pipeline.correlation_guard();
     }
 }
