@@ -201,7 +201,18 @@ Go orchestrator process
 | Concern | Mitigation |
 |---|---|
 | Privilege escalation | ARQENOR reads only; no kernel writes by default |
-| Local API exposure | REST and gRPC bound to `127.0.0.1` by default |
+| Local API exposure | REST and gRPC bound to `127.0.0.1` by default; `data/` created `0o700`, `arqenor.db` chmod'd `0o600` |
 | Sensitive data at rest | SQLite not encrypted in Phase 1; encryption planned Phase 4 |
-| Proto injection | Typed protobuf — no raw string parsing on the wire |
+| Proto injection | Typed protobuf — no raw string parsing on the wire. `Alert.metadata` and `Alert.message` sanitized at the gRPC frontier (control chars except `\t` replaced with `_`). |
+| Path traversal / symlink trick | `arqenor_platform::path_validate::ensure_no_reparse` rejects symlinks and reparse points before any FS scan; Linux variant additionally refuses world-writable parent dirs outside `/tmp /var/tmp /dev/shm`. |
+| Filesystem scan abuse | gRPC `ScanRequest.root_path` matched against `[scan].fs_roots` allowlist (`Status::permission_denied` on miss). `max_size`: `0` → server default 10 GiB, `> 10 GiB` rejected. |
+| Hash bombs | `arqenor_platform::hash::sha256_file_streaming` reads in 64 KiB chunks and refuses files larger than `DEFAULT_MAX_HASH_SIZE` (512 MiB). |
+| ReDoS in SIGMA rules | Regex inputs capped at 64 KiB; `RegexBuilder::size_limit(1_000_000)` and `dfa_size_limit(1_000_000)`; compiled regex cached in an LRU. SIGMA rule loader caps 10 000 rules and refuses files > 1 MiB / symlinks. |
+| IOC feed abuse | Downloads bounded to 256 MiB, global timeout 120s; CSV parser; fetch outside the lock with atomic `IocDb` swap. |
+| Correlation memory blow-up | `CorrelationEngine` enforces `MAX_ACTIVE_INCIDENTS = 100_000` with auto-flush; pipeline calls `flush_stale()` every 60s. |
+| gRPC DoS | Tonic server: HTTP/2 keepalive 30s, max connection age 1h + 60s grace, unary timeout 5min, max concurrent streams 128, Tower concurrency cap 64. |
+| HTTP DoS | Per-IP token-bucket rate limiter (`[api].rate_limit_per_sec`, default 20). SSE subscriptions capped via `[api].max_sse_connections` (default 100). Per-scan `context.WithTimeout` (default 600s). |
+| PID recycling | Windows credential-store accessor captures `(exe_path, creation_time)` at enumeration and re-checks `creation_time` before alerting; mismatched PIDs are skipped with `warn!`. |
+| ETW silent failure | Session refuses to start unless ≥ 1 `Process` provider plus ≥ 1 `File` or `Network` provider attach. Logs `error!` when `attached == 0`. |
+| eBPF silent failure | `EbpfAgent::start()` errors if zero probes attach. Ring-buffer drops counted in `EBPF_DROPPED_EVENTS`; background `drop_monitor` task logs `warn!` / `error!` on growth. |
 | Hash collisions | SHA-256 for file identity — collision-resistant for operational use |

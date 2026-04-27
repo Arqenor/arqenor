@@ -54,9 +54,9 @@ chore(deps): bump tonic to 0.12
 
 1. Branch from `dev`
 2. Keep PRs focused — one logical change per PR
-3. All CI checks must pass (check, test, clippy, go-test)
+3. All CI checks must pass: `rust-fmt`, `rust-clippy-linux`, `rust-check-windows`, `go`, `audit` (blocking), `cargo-deny`, `govulncheck`
 4. At least one reviewer approval required
-5. Squash-merge into `dev`
+5. Squash-merge into `dev` (subject must end in ` (#NNN)`; the `enforce-main-policy` workflow rejects pushes to `main` that violate this)
 
 ---
 

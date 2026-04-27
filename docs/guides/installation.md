@@ -7,7 +7,7 @@
 | Tool | Minimum version | Install |
 |---|---|---|
 | Rust toolchain | 1.80 | `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \| sh` |
-| Go | 1.23 | https://go.dev/dl/ |
+| Go | 1.25 (CI), 1.23+ to build | https://go.dev/dl/ |
 | protoc | 3.x | See below |
 
 ### protoc installation
@@ -146,6 +146,12 @@ rustup target add x86_64-pc-windows-gnu
 sudo apt install gcc-mingw-w64-x86-64
 cargo build --release --target x86_64-pc-windows-gnu -p arqenor-cli
 ```
+
+---
+
+## Runtime data directory
+
+On first launch the orchestrator creates `data/` (path from `[general].data_dir`) with mode `0o700` and the SQLite file `arqenor.db` is chmod'd to `0o600`. Keep these permissions — relaxing them exposes alert history and any captured metadata.
 
 ---
 

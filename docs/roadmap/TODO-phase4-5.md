@@ -189,3 +189,28 @@ Légende : `[ ]` à faire · `[~]` en cours · `[x]` terminé
 | `arqenor-platform` (yara) | F3 | 🔴 not started — no `yara-x` dep yet |
 | `arqenor-core` (tls_fingerprint) | (Phase 3 F1) | ✅ |
 | `arqenor-store` (ioc persist) | F4 | ✅ |
+
+---
+
+## Hardening (2026-04-27 security pass)
+
+### SIGMA engine
+
+- [x] **A-HARD-1** — Replace deprecated `serde_yaml 0.9` (RUSTSEC-2024-0320) with `serde_yml 0.0.12` for SIGMA YAML parsing (DEP-SERDE_YAML). `arqenor-core/Cargo.toml`. (2026-04-27)
+- [x] **A-HARD-2** — Bound regex input length to `MAX_REGEX_INPUT = 64 KiB`, `RegexBuilder::size_limit(1 MB)`, LRU cache for compiled regexes (SIGMA-REGEX). `arqenor-core/src/rules/sigma.rs`. (2026-04-27)
+
+### IOC pipeline
+
+- [x] **B-HARD-1** — Replace handcrafted `splitn(',')` parser with the `csv` crate (`ReaderBuilder::flexible(true).comment(b'#')`) for MalwareBazaar / Feodo / URLhaus feeds (IOC-CSV). (2026-04-27)
+- [x] **B-HARD-2** — `tokio::time::timeout(120s)` global on feed refresh; fetch + parse moved outside the lock; atomic swap on `RwLock<IocDb>` (IOC-FEED-TIMEOUT). (2026-04-27)
+- [x] **B-HARD-3** — `MAX_FEED_SIZE = 256 MiB`; streaming `read_body_capped` with `Content-Length` belt + `take` (IOC-SIZE). `arqenor-core/src/ioc/feeds.rs`. (2026-04-27)
+
+### Correlation engine
+
+- [x] **C-HARD-1** — `MAX_ACTIVE_INCIDENTS = 100_000` cap with auto-flush when reached, hardened doc-comment on `CorrelationEngine` (CORR-LEAK). (2026-04-27)
+- [x] **C-HARD-2** — `sanitize_metadata_value` applied in `pipeline::emit_alert` and `correlation::ingest` to strip control chars from `Alert.metadata` (CORR-INJECT). (2026-04-27)
+
+### Memory forensics
+
+- [x] **D-HARD-1** — PPL-protected processes: fallback to `OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION)` when `VM_READ` denied; new public `MemoryScanResult::vm_read_denied` flag (MEMORY-PPL). (2026-04-27)
+- [x] **D-HARD-2** — Streaming SHA-256 (`arqenor-platform/src/hash.rs`, 512 MiB cap) replaces `std::fs::read()` in `byovd`, `memory_scan`, `ntdll_check` (PIPE-HASH-OOM). (2026-04-27)

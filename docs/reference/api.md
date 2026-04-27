@@ -2,6 +2,8 @@
 
 Base URL: `http://127.0.0.1:8080/api/v1`
 
+The orchestrator binds to `127.0.0.1` by default — change `[api].listen_addr` in `configs/arqenor.toml` to expose externally. Do **not** flip this to `0.0.0.0` until the SaaS auth layer ships.
+
 All responses are JSON. Error responses follow the shape:
 
 ```json
@@ -10,6 +12,13 @@ All responses are JSON. Error responses follow the shape:
   "code": "ERROR_CODE"
 }
 ```
+
+## Cross-cutting limits
+
+- **Rate limiting:** per-IP token bucket, default 20 req/s (`[api].rate_limit_per_sec`). Excess returns `429 Too Many Requests` with a `Retry-After` header.
+- **Per-scan timeout:** scans triggered via `POST /scans` run inside a `context.WithTimeout` of `[api].scan_timeout_seconds` (default 600 s). Scans exceeding this are cancelled.
+- **SSE alert stream cap:** at most `[api].max_sse_connections` concurrent subscribers (default 100). When the cap is reached, new subscribers receive `503 Service Unavailable` with body `{"error":"max sse connections reached"}`.
+- **Logging:** query strings are redacted before being logged.
 
 ---
 
@@ -135,10 +144,10 @@ Trigger an on-demand scan.
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `type` | string | Yes | `filesystem` `process` `persistence` |
-| `root_path` | string | For `filesystem` | Scan root |
+| `root_path` | string | For `filesystem` | Scan root. Server-side allowlist (`[scan].fs_roots`) — paths outside it are rejected with `403`. |
 | `recursive` | bool | No (default true) | Recurse into subdirectories |
 | `extensions` | string[] | No | Filter by extension; empty = all |
-| `max_size` | integer | No | Max file size to hash |
+| `max_size` | integer | No | Max file size to hash. `0` = server default (10 GiB). Values > 10 GiB are rejected. |
 
 **Response 202:**
 
@@ -188,4 +197,8 @@ List known network hosts from the most recent network scan.
 | `SCAN_NOT_FOUND` | 404 | Scan ID does not exist |
 | `INVALID_SEVERITY` | 400 | Unknown severity value |
 | `INVALID_SCAN_TYPE` | 400 | Unknown scan type |
+| `PATH_NOT_ALLOWED` | 403 | `root_path` outside `[scan].fs_roots` allowlist |
+| `MAX_SIZE_EXCEEDED` | 400 | `max_size` greater than the 10 GiB server cap |
+| `RATE_LIMITED` | 429 | Per-IP rate limit exceeded; retry after `Retry-After` |
+| `SSE_CAP_REACHED` | 503 | SSE alert stream subscriber cap reached |
 | `INTERNAL` | 500 | Unexpected server error |

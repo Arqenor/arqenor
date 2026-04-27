@@ -64,6 +64,14 @@ advisory (unless you prefer to remain anonymous).
 - Denial-of-service against an already-compromised host
 - Social engineering of Arqenor maintainers
 
+## Audit history
+
+A third-party security audit and the corresponding remediation log are
+published in [`docs/security-audit-202604.md`](docs/security-audit-202604.md).
+That document tracks each finding's status (fixed / mitigated / accepted) and
+points to the commits that addressed it. Use it as the canonical source of
+truth for "is this already known?" before filing a report.
+
 ## Safe harbor
 
 We support good-faith security research. If you follow this policy, we

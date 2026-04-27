@@ -201,3 +201,12 @@ B4–B9, C, F5   ✅ Phase 1 complete
 | `arqenor-tui` | G | ✅ |
 | `arqenor-desktop` (Tauri) | G, H | ✅ |
 | `arqenor-platform` Linux | C1–C7 | ✅ |
+
+---
+
+## Hardening (2026-04-27 security pass)
+
+- [x] **F-HARD-1** — FIM SHA-256 streaming via `arqenor-platform/src/hash.rs` (cap 512 MiB) — 9 sites refactored (PIPE-HASH-OOM). (2026-04-27)
+- [x] **F-HARD-2** — Watch-root reparse-point validation (`path_validate::ensure_no_reparse`) before `CreateFileW` (Win) and `inotify::add` (Lin) (FS-SYMLINK-WIN/LIN). (2026-04-27)
+- [x] **E-HARD-1** — `ProcessIdentity { exe_path, creation_time }` captured at enumeration to defeat PID recycling in cred_guard (ETW-PID-TOCTOU). (2026-04-27)
+- [x] **A-HARD-1** — `Alert.metadata` sanitisation (`sanitize_metadata_value`) at every insertion site (CORR-INJECT, GRPC-METADATA). (2026-04-27)

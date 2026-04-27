@@ -100,10 +100,10 @@ message PersistenceList {
 }
 
 message ScanRequest {
-  string          root_path  = 1;
+  string          root_path  = 1;   // server-side allowlist; refused with permission_denied if outside [scan].fs_roots
   bool            recursive  = 2;
   repeated string extensions = 3;
-  uint64          max_size   = 4;
+  uint64          max_size   = 4;   // 0 = server default (10 GiB), > 10 GiB rejected with invalid_argument
 }
 
 message HealthResponse {
@@ -187,7 +187,7 @@ service NetworkScanner {
 
 - All integers use varint encoding (proto3 default)
 - `int64 timestamp` fields are Unix epoch seconds
-- `string metadata` in `Alert` is a JSON object serialized to string — parse with your language's JSON library
+- `string metadata` in `Alert` is a JSON object serialized to string — parse with your language's JSON library. The server replaces control characters (except `\t`) with `_` before sending, in both `metadata` and `message`.
 - Empty repeated fields are omitted on the wire (proto3 default)
 - `is_new` in `PersistenceEntry` defaults to `false` if not set
 

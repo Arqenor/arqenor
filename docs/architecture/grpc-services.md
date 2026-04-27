@@ -112,12 +112,14 @@ message PersistenceEntry {
 
 ```protobuf
 message ScanRequest {
-  string          root_path  = 1;
+  string          root_path  = 1;   // server-side allowlist enforced (see "Server-side limits")
   bool            recursive  = 2;
   repeated string extensions = 3;   // filter by extension, empty = all
-  uint64          max_size   = 4;   // bytes, 0 = no limit
+  uint64          max_size   = 4;   // bytes, 0 = server default (10 GiB), > 10 GiB = rejected
 }
 ```
+
+The wire format is unchanged. Only the documentation comments on `root_path` and `max_size` evolved to reflect server-side validation.
 
 #### HealthResponse
 
@@ -227,6 +229,35 @@ Prerequisites for Go codegen:
 go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
 go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
 ```
+
+---
+
+## Server-side limits
+
+The Tonic server applies the following limits to every connection:
+
+| Setting | Value | Purpose |
+|---|---|---|
+| `http2_keepalive_interval` | 30 s | Detect dead peers |
+| `http2_keepalive_timeout` | 10 s | |
+| `max_connection_age` | 1 h | Forces clients to reconnect periodically |
+| `max_connection_age_grace` | 60 s | |
+| Unary `timeout` | 5 min | Per-RPC ceiling |
+| `max_concurrent_streams` | 128 | Per-connection HTTP/2 streams |
+| Tower `ConcurrencyLimitLayer` | 64 | Global in-flight RPC cap (covers DoS surface in lieu of req/sec rate-limit) |
+
+### `Alert.metadata` sanitization
+
+Every `Alert` crossing the wire is sanitized: control characters in `metadata` and `message` are replaced with `_`, except `\t`. Implemented by `arqenor_core::models::alert::sanitize_metadata_value` and applied in `core_alert_to_proto`.
+
+### `ScanRequest.root_path` allowlist
+
+`root_path` is canonicalized and matched against the allowlist read from `[scan].fs_roots` in `configs/arqenor.toml` (or the `builtin_allowed_roots()` fallback if no config is present). Requests outside the allowlist are rejected with `Status::permission_denied`.
+
+### `ScanRequest.max_size` bounds
+
+- `0` → server default (10 GiB)
+- `> 10 GiB` → `Status::invalid_argument`
 
 ---
 

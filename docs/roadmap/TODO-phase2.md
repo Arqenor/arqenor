@@ -163,3 +163,13 @@ D              → macOS ESF ✅ (intégration directe via `endpoint-sec` Rust c
 | `arqenor-driver` (repo **enterprise**) | C1–C5 | ✅ côté enterprise (C6 bloqué MVI) — pas dans ce repo OSS |
 | ~~`arqenor-esf` (Swift+FFI)~~ | ~~D1–D4~~ | ❌ abandonné — remplacé par intégration Rust directe ci-dessous |
 | `arqenor-platform/src/macos/` (ESF) | D | ✅ via `endpoint-sec 0.5` crate |
+
+---
+
+## Hardening (2026-04-27 security pass)
+
+- [x] **A-HARD-1** — ETW `ProviderGroup` (Process / File / Network / Security) + fail-fast: bail if Process + (File or Network) absent, `error!` when `attached == 0` (ETW-DEGRAD). `windows/etw_consumer.rs`. (2026-04-27)
+- [x] **A-HARD-2** — Cred-guard PID-recycle defence: `ProcessIdentity { exe_path, creation_time }` snapshot at enumeration, recompare at lookup, skip if PID recycled (ETW-PID-TOCTOU). `windows/cred_guard.rs`. (2026-04-27)
+- [x] **A-HARD-3** — PPL fallback: `OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION)` when `VM_READ` denied; new public `MemoryScanResult::vm_read_denied` (MEMORY-PPL). `windows/memory_scan.rs`. (2026-04-27)
+- [x] **B-HARD-1** — `EbpfAgent::start()` returns `Err(EbpfLoadError::NoProbesAttached)` when 0 probes attached, instead of silent `Ok` (EBPF-SILENT). (2026-04-27)
+- [x] **B-HARD-2** — `pub static EBPF_DROPPED_EVENTS: AtomicU64` + 60 s monitor task (warn > 0, error > 1000) (EBPF-DROP). (2026-04-27)

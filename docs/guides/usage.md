@@ -128,6 +128,8 @@ curl -X POST http://127.0.0.1:8080/api/v1/scans \
   -d '{"type":"filesystem","root_path":"C:\\Users","recursive":true}'
 ```
 
+`root_path` must lie within `[scan].fs_roots` (server-side allowlist) — otherwise the request is rejected with `403 PATH_NOT_ALLOWED`. Scans run with a per-request timeout of `[api].scan_timeout_seconds` (default 600 s). Excessive request rate triggers `429 RATE_LIMITED` with a `Retry-After` header.
+
 ### List alerts
 
 ```bash
@@ -154,7 +156,7 @@ grpcurl -plaintext 127.0.0.1:50051 arqenor.HostAnalyzer/GetProcessSnapshot
 # Watch process events (streams until Ctrl+C)
 grpcurl -plaintext 127.0.0.1:50051 arqenor.HostAnalyzer/WatchProcesses
 
-# Filesystem scan
+# Filesystem scan — root_path must lie within [scan].fs_roots
 grpcurl -plaintext -d '{"root_path":"C:\\\\Users","recursive":true}' \
   127.0.0.1:50051 arqenor.HostAnalyzer/ScanFilesystem
 

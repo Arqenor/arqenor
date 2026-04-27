@@ -1,5 +1,10 @@
 # ARQENOR — Complete Product Roadmap
-> Last updated: 2026-04-25 | Based on 2025-2026 threat intelligence
+> Last updated: 2026-04-27 | Based on 2025-2026 threat intelligence
+
+## Recent activity
+
+- **2026-04-27**: Security audit remediation pass — 29 findings closed across Go orchestrator, Rust gRPC/core/platform, eBPF, CI. See `docs/security-audit-202604.md` § 8.
+- **2026-04-26**: eBPF loader live (B7) + YARA memory scanning (F3) shipped.
 
 ---
 

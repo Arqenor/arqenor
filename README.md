@@ -71,7 +71,7 @@ ARQENOR gives independent developers, small teams, and security researchers comm
 | **Processes** | Snapshot + streaming monitor, SHA-256 hashing, risk scoring, real-time connection monitoring |
 | **Persistence** | Win: Registry, Tasks, Services, WMI, COM, BITS, AppInit, IFEO (B1-B9) · Lin: Cron, Systemd, LD_PRELOAD, PAM, SSH, git hooks (C1-C7) · Mac: LaunchDaemon/Agent, login items, auth plugins |
 | **Filesystem** | FIM baseline + real-time watch (ReadDirectoryChangesW / inotify / ESF) |
-| **Kernel Telemetry** | ETW (10 providers, TDH parsing) · eBPF (skeleton — probes WIP) · ESF (macOS) |
+| **Kernel Telemetry** | ETW (10 providers, TDH parsing) · eBPF (5 probes loaded + attached at runtime) · ESF (macOS) |
 | **TUI** | Live Ratatui dashboard with alert streaming |
 | **CLI** | `arqenor scan` · `arqenor watch --sigma-dir --yara-dir --no-ioc` |
 | **API** | REST (Go/Gin) + gRPC (Rust/Tonic) + SSE alert streaming |
@@ -144,7 +144,7 @@ arqenor/
 │   ├── arqenor-store/      # SQLite persistence layer
 │   ├── arqenor-tui/        # Ratatui terminal dashboard
 │   └── arqenor-cli/        # clap CLI (scan / watch)
-├── arqenor-ebpf/           # Linux eBPF kernel probes (libbpf-rs, 5 planned — scaffold only)
+├── arqenor-ebpf/           # Linux eBPF kernel probes (libbpf-rs, 5 probes loaded + attached at runtime)
 ├── go/
 │   ├── cmd/orchestrator/   # Entry point
 │   ├── internal/api/       # Gin REST handlers + SSE alert streaming
@@ -154,6 +154,35 @@ arqenor/
 ├── configs/                 # Runtime configuration (arqenor.toml)
 └── docs/                    # Architecture, roadmap, guides
 ```
+
+---
+
+## Security posture / threat model
+
+ARQENOR runs as a local agent. Authentication on the REST and gRPC surfaces is
+**deliberately deferred** to the upcoming SaaS control-plane (Next.js); it is
+**not implemented in this OSS repo**. To keep the default install safe:
+
+- **Bind localhost only.** The Go orchestrator binds `127.0.0.1:8080` and the
+  Tonic host analyzer binds `127.0.0.1:50051` by default. **Do not expose
+  ports 8080 / 50051 on the network** until the SaaS layer ships — there is
+  no auth gate in front of them.
+- **Per-IP rate-limit on REST.** Token-bucket middleware (default 20 req/s)
+  plus a hard cap on concurrent SSE subscribers (default 100) protect the
+  orchestrator against trivial DoS.
+- **Bounded file hashing.** SHA-256 hashing streams in 64 KiB chunks and
+  refuses files larger than 512 MiB by default — no OOM on accidental large
+  inputs.
+- **gRPC server limits.** Tonic is configured with HTTP/2 keepalive,
+  per-connection age caps, a 5 min unary timeout, max 128 concurrent streams,
+  and a Tower concurrency cap of 64.
+- **Path validation.** Reparse-point and (on Linux) world-writable parent
+  checks gate filesystem watchers.
+- **Supply-chain hardening.** `cargo-audit` is blocking in CI, `cargo-deny`
+  enforces license/source policy, and `govulncheck` runs on every PR.
+
+The full third-party security audit and the remediation history live in
+[`docs/security-audit-202604.md`](docs/security-audit-202604.md).
 
 ---
 
@@ -203,6 +232,7 @@ Full reference → [`docs/guides/configuration.md`](docs/guides/configuration.md
 | [REST API Reference](docs/reference/api.md) | Endpoint spec with request/response examples |
 | [CLI Reference](docs/reference/cli.md) | All flags and subcommands |
 | [Proto Reference](docs/reference/proto.md) | Full proto3 message and service definitions |
+| [Security Audit (2026-04)](docs/security-audit-202604.md) | Third-party audit findings, remediation history, hardening summary |
 
 ---
 
@@ -213,21 +243,21 @@ See [`docs/roadmap/ROADMAP.md`](docs/roadmap/ROADMAP.md) for the full 6-phase pl
 | Phase | Focus | Status |
 |-------|-------|--------|
 | **Phase 1** | Detection Engine + LOTL Rules (32 LOLBin rules, persistence B1-B9/C1-C7, FIM, credential theft) | ✅ Done |
-| **Phase 2** | Kernel Telemetry: ETW (10 providers), eBPF (5 probes)[^ebpf-wip], ESF (macOS), WDK driver | 🟡 Partial |
+| **Phase 2** | Kernel Telemetry: ETW (10 providers), eBPF (5 probes loaded + attached), ESF (macOS), WDK driver | 🟡 Partial |
 | **Phase 3** | Network: C2 beaconing, DNS tunneling, DGA, JA4 TLS fingerprinting, connection monitoring | ✅ Done |
 | **Phase 4** | SIGMA engine (3000+ rules), IOC feeds (abuse.ch), correlation engine, PE static analyzer | ✅ Done (behavioral ML pending) |
-| **Phase 5** | Memory forensics (VAD, hollowing, NTDLL hooks), BYOVD (50 drivers), YARA scanning[^yara-planned] | 🟡 Partial |
+| **Phase 5** | Memory forensics (VAD, hollowing, NTDLL hooks), BYOVD (50 drivers), YARA scanning (opt-in) | ✅ Done |
 | **Phase 6** | Cloud dashboard, fleet management, automated response | Not started |
-
-[^ebpf-wip]: eBPF probes are scaffolded but not yet attached at runtime — see [Current limitations](#current-limitations).
-[^yara-planned]: `yara-x` is not yet a dependency of any crate in `rust/`; in-memory YARA scanning is planned but not wired in. See [Current limitations](#current-limitations).
 
 ---
 
 ## Current limitations
 
-- **eBPF probes** — The loader in `arqenor-ebpf/src/loader.rs` is currently a scaffold. The 5 planned probes (execve, memory, persistence, privesc, rootkit) are not yet attached at runtime. Production Linux kernel telemetry relies on auditd / journald integration meanwhile.
-- **YARA scanning** — `yara-x` is not yet wired into `arqenor-platform`. Rule loading and in-memory scanning are planned; the feature is currently advertised as a roadmap item, not a shipped capability.
+- **eBPF → DetectionPipeline bridge** — All 5 probes (execve, memory, persistence, privesc, rootkit) are loaded and attached at runtime, and `arqenor-cli` already forwards `EbpfEvent` → `Alert` over `scan_tx`. Plugging the receiver directly into `DetectionPipeline` so eBPF events flow through the same correlation / SIGMA / IOC stages as ETW events is the remaining follow-up. `EbpfAgent::start` now fails fast if zero probes attach, and a background drop-monitor logs a warning every 60 s if events are being lost.
+- **YARA in default release builds** — `yara-x` is wired into `arqenor-platform` and ships behind the `yara` Cargo feature (off by default to keep clean builds fast; enable with `--features full-detection` on the CLI). Per-PID `scan_process` is currently Windows-only (`scan_bytes` works everywhere). Not enabled in the stock release builds yet.
+- **JA4 TLS fingerprinting — packet source** — Detection module + 17 C2 signatures are in `arqenor-core`, but `parse_client_hello` / `check_ja4_alerts` are not yet wired to a pcap / AF_PACKET capture loop.
+- **Behavioral ML scoring** — Isolation Forest scoring is still pending. SIGMA, IOC, correlation, static PE analyzer and IOC SQLite persistence are wired.
+- **REST / gRPC authentication** — Deliberately not implemented here; gated by the upcoming SaaS control-plane. Mitigated by strict localhost binding, per-IP rate-limit and SSE caps. See "Security posture" above.
 
 ---
 

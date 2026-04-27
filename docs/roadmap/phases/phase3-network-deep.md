@@ -337,3 +337,9 @@ arqenor-net/
 - T1558.003 — Kerberoasting (Kerberos TGS anomalies)
 - T1557.001 — ARP cache poisoning / rogue gateway
 - T1048 — Exfiltration via alternative protocol
+
+---
+
+## Status note (2026-04-27)
+
+The 2026-04-27 security pass did not touch this phase directly. JA4 (`tls_fingerprint.rs`) remains module-ready but unwired — `parse_client_hello` / `check_ja4_alerts` still wait for a packet source (pcap / AF_PACKET capture). This is tracked as `FEAT-JA4-DEAD` in `docs/security-audit-202604.md` § 8 (pending). F2 (SMB lateral), F3 (Kerberoasting) and F4 (ARP poisoning) are still open.

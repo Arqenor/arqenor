@@ -265,3 +265,11 @@ pub struct ScoreFactor {
 - TA0006 Credential Access (LSASS, SAM, browser creds)  
 - TA0007 Discovery (net enumeration patterns)  
 - TA0040 Impact (shadow copy deletion)  
+
+---
+
+## Hardening notes (2026-04-27 security audit pass)
+
+- **FIM SHA-256 streaming.** All disk hashing in this phase (`fim`, `byovd`, `cred_guard`, `fs_scanner` Win/Lin/macOS, `persistence_advanced`) now goes through `arqenor-platform/src/hash.rs` (default 512 MiB cap). Replaces the previous `std::fs::read()` pattern that loaded files entirely in RAM.
+- **Symlink / reparse-point validation.** Watch roots are checked through `path_validate::ensure_no_reparse` before `CreateFileW` (Windows) and `inotify::add` (Linux) to prevent a non-privileged user redirecting the FIM session.
+- **Cred-guard PID recycling defence.** `windows/cred_guard.rs` captures `ProcessIdentity { exe_path, creation_time }` at handle-table enumeration and re-checks at lookup time, dropping the entry when the PID has been recycled.

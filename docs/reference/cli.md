@@ -98,8 +98,13 @@ arqenor watch [OPTIONS]
 Options:
   --watch-path <PATH>   Directory to monitor for FIM [default: C:\Windows\System32 / /etc]
   --db <PATH>           SQLite database for alert persistence [default: arqenor.db]
+  --sigma-dir <PATH>    Directory of SIGMA YAML rules
+  --no-ioc              Disable IOC threat-intelligence feed loading
+  --yara-dir <PATH>     Custom YARA rules directory (requires --features yara)
   -h, --help            Print help
 ```
+
+`--sigma-dir` loader limits: max 10 000 rules per run; files larger than 1 MiB and symlinks inside the directory are skipped with a `warn!`. Regex inputs are capped at 64 KiB; compiled regex are cached in an LRU.
 
 Watch mode starts a **real-time detection pipeline**:
 
