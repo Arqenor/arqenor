@@ -126,15 +126,58 @@ mod handle_scan {
         fn GetCurrentProcessId() -> u32;
         fn OpenProcess(desired_access: u32, inherit_handle: i32, process_id: u32) -> *mut c_void;
         fn CloseHandle(h: *mut c_void) -> i32;
+        fn QueryFullProcessImageNameW(
+            h: *mut c_void,
+            flags: u32,
+            buf: *mut u16,
+            size: *mut u32,
+        ) -> i32;
+        fn GetProcessTimes(
+            h: *mut c_void,
+            creation: *mut FileTime,
+            exit: *mut FileTime,
+            kernel: *mut FileTime,
+            user: *mut FileTime,
+        ) -> i32;
+    }
+
+    /// Win32 `FILETIME` mirrored locally so we don't need a `windows` crate
+    /// import inside the inner module.
+    #[repr(C)]
+    #[derive(Clone, Copy, Default)]
+    pub(super) struct FileTime {
+        low: u32,
+        high: u32,
+    }
+
+    impl FileTime {
+        fn as_u64(self) -> u64 {
+            ((self.high as u64) << 32) | (self.low as u64)
+        }
+    }
+
+    /// Snapshot of identity bits we capture *at handle-enumeration time* so
+    /// we can later detect PID reuse before correlating an entry with a
+    /// `sysinfo` lookup.
+    #[derive(Debug, Clone, Default)]
+    pub(super) struct ProcessIdentity {
+        pub exe_path: Option<String>,
+        /// `FILETIME` from `GetProcessTimes` (CreationTime). 0 if unknown.
+        pub creation_time: u64,
     }
 
     /// One handle-table entry, projected to the bits we care about.
-    #[derive(Debug, Clone, Copy)]
+    ///
+    /// Carries a snapshot of the holder's identity captured at enumeration
+    /// time — we re-read these values when we go to alert and refuse to
+    /// emit if the PID has been recycled into a different process.
+    #[derive(Debug, Clone)]
     pub(super) struct HandleEntry {
         pub object: usize,
         pub holder_pid: u32,
         pub handle_value: usize,
         pub granted_access: u32,
+        pub identity: ProcessIdentity,
     }
 
     /// Snapshot the global handle table.  Returns an empty `Vec` if the
@@ -176,6 +219,10 @@ mod handle_scan {
 
     /// Decode a `SYSTEM_HANDLE_INFORMATION_EX` byte buffer into our entries.
     /// All reads are unaligned because the buffer is `Vec<u8>`-allocated.
+    ///
+    /// Captures a per-PID identity snapshot (exe path + creation time) so
+    /// downstream lookups can reject any entry whose PID has been recycled
+    /// before the alert is emitted (TOCTOU defence).
     fn parse_handle_table(buf: &[u8]) -> Vec<HandleEntry> {
         let usize_sz = std::mem::size_of::<usize>();
         let header_sz = 2 * usize_sz; // NumberOfHandles + Reserved
@@ -189,20 +236,94 @@ mod handle_scan {
         let entries_avail = (buf.len() - header_sz) / entry_sz;
         let count = raw_count.min(entries_avail);
 
+        // Memoise per-PID identity so we don't re-open the same process
+        // dozens of times (handle tables on busy hosts have lots of
+        // duplication on a handful of PIDs).
+        let mut identity_cache: std::collections::HashMap<u32, ProcessIdentity> =
+            std::collections::HashMap::new();
+
         let mut out = Vec::with_capacity(count);
         for i in 0..count {
             let offset = header_sz + i * entry_sz;
             // SAFETY: offset + entry_sz <= buf.len() by construction.
             let entry: SystemHandleTableEntryInfoEx =
                 unsafe { std::ptr::read_unaligned(buf.as_ptr().add(offset) as *const _) };
+            let pid = entry.unique_process_id as u32;
+            let identity = identity_cache
+                .entry(pid)
+                .or_insert_with(|| capture_process_identity(pid))
+                .clone();
             out.push(HandleEntry {
                 object: entry.object as usize,
-                holder_pid: entry.unique_process_id as u32,
+                holder_pid: pid,
                 handle_value: entry.handle_value,
                 granted_access: entry.granted_access,
+                identity,
             });
         }
         out
+    }
+
+    /// Capture exe path + creation time for `pid` via
+    /// `OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION)` — the minimal access
+    /// right that works under non-elevated tokens and against most PPL
+    /// processes. Failures (PPL with denied access, kernel pids) yield an
+    /// empty identity rather than panicking.
+    pub(super) fn capture_process_identity(pid: u32) -> ProcessIdentity {
+        if pid == 0 {
+            return ProcessIdentity::default();
+        }
+        // SAFETY: pid is a u32; OpenProcess returns null on failure.
+        let h = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
+        if h.is_null() {
+            return ProcessIdentity::default();
+        }
+
+        let exe_path = {
+            let mut buf = [0u16; 1024];
+            let mut size = buf.len() as u32;
+            // SAFETY: handle is valid; buf and size are correctly sized.
+            let ok = unsafe {
+                QueryFullProcessImageNameW(h, 0, buf.as_mut_ptr(), &mut size as *mut u32)
+            };
+            if ok != 0 && size > 0 && (size as usize) <= buf.len() {
+                Some(String::from_utf16_lossy(&buf[..size as usize]))
+            } else {
+                None
+            }
+        };
+
+        let creation_time = {
+            let mut creation = FileTime::default();
+            let mut exit = FileTime::default();
+            let mut kernel = FileTime::default();
+            let mut user = FileTime::default();
+            // SAFETY: handle is valid; pointers refer to local stack values.
+            let ok = unsafe {
+                GetProcessTimes(
+                    h,
+                    &mut creation as *mut _,
+                    &mut exit as *mut _,
+                    &mut kernel as *mut _,
+                    &mut user as *mut _,
+                )
+            };
+            if ok != 0 {
+                creation.as_u64()
+            } else {
+                0
+            }
+        };
+
+        // SAFETY: handle came from OpenProcess and we close it exactly once.
+        unsafe {
+            let _ = CloseHandle(h);
+        }
+
+        ProcessIdentity {
+            exe_path,
+            creation_time,
+        }
     }
 
     /// RAII guard for a Win32 handle so we close it on every exit path.
@@ -339,6 +460,30 @@ pub fn scan_lsass_handles(sys: &sysinfo::System) -> Vec<Alert> {
             continue;
         }
 
+        // TOCTOU defence: re-capture the holder's identity *now* and refuse
+        // to alert if the PID has been recycled (different exe path, or
+        // different creation timestamp, between enumeration and lookup).
+        let current_identity = handle_scan::capture_process_identity(entry.holder_pid);
+        let captured = &entry.identity;
+        let pid_recycled = match (captured.creation_time, current_identity.creation_time) {
+            // Both timestamps known and disagree → almost certainly reuse.
+            (a, b) if a != 0 && b != 0 && a != b => true,
+            // One side missing — fall back to exe-path comparison when we
+            // have one.
+            _ => matches!(
+                (&captured.exe_path, &current_identity.exe_path),
+                (Some(a), Some(b)) if !a.eq_ignore_ascii_case(b)
+            ),
+        };
+        if pid_recycled {
+            tracing::warn!(
+                target = "cred_guard",
+                pid = entry.holder_pid,
+                "skipping LSASS handle holder — PID was reused between enumeration and lookup"
+            );
+            continue;
+        }
+
         let holder_name = sys
             .process(Pid::from(entry.holder_pid as usize))
             .map(|p| p.name().to_string_lossy().into_owned())
@@ -351,6 +496,10 @@ pub fn scan_lsass_handles(sys: &sysinfo::System) -> Vec<Alert> {
         let exe_path = sys
             .process(Pid::from(entry.holder_pid as usize))
             .and_then(|p| p.exe().map(|e| e.to_string_lossy().into_owned()))
+            // Fall back to the path we captured at enumeration time, which
+            // is correct-by-construction even if `sysinfo` later loses the
+            // PID between snapshots.
+            .or_else(|| captured.exe_path.clone())
             .unwrap_or_else(|| "<unknown>".to_string());
 
         let mut meta = HashMap::new();

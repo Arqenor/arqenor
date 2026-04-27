@@ -23,17 +23,29 @@
 //!
 //! # Failure model
 //!
-//! `EbpfAgent::start` is *best-effort*: each probe is loaded independently
-//! and a failure on one probe (missing kprobe symbol on the running kernel,
-//! verifier rejection, …) is logged via `tracing::warn!` and skipped — the
-//! agent still returns successfully with whatever subset of probes attached
-//! cleanly. If **every** probe fails, the call still succeeds with an empty
-//! `links` vector and an open (but never-fed) receiver; callers that want a
-//! hard failure should check `agent.attached_probes()`.
+//! `EbpfAgent::start` is *best-effort with a hard floor*: each probe is
+//! loaded independently and a failure on one probe (missing kprobe symbol
+//! on the running kernel, verifier rejection, …) is logged via
+//! `tracing::warn!` and skipped — the agent still returns successfully
+//! with whatever subset of probes attached cleanly, and emits a single
+//! aggregate `warn!` listing the missing probes when running in
+//! degraded mode.
+//!
+//! If **every** probe fails, [`EbpfAgent::start`] returns
+//! [`EbpfLoadError::NoProbesAttached`] and a `tracing::error!` is emitted —
+//! we treat zero kernel telemetry as a hard error rather than a silently
+//! degraded agent (security blind spot).
+//!
+//! Once running, events that overflow the bounded internal channel
+//! between the kernel ring-buffer drain and the detection pipeline are
+//! counted in [`EBPF_DROPPED_EVENTS`] (exposed via
+//! [`ebpf_dropped_events_total`]). A background task samples that counter
+//! every 60 s and logs `warn!`/`error!` based on the per-minute delta.
 
 #[cfg(target_os = "linux")]
 pub mod linux {
     use std::mem::MaybeUninit;
+    use std::sync::atomic::{AtomicU64, Ordering};
     use std::sync::Arc;
     use std::time::Duration;
 
@@ -45,6 +57,32 @@ pub mod linux {
     use crate::events::{
         CredsEvent, EbpfEvent, ExecveEvent, FileWriteEvent, MmapEvent, ModuleEvent, PtraceEvent,
     };
+
+    // ── Drop counter ──────────────────────────────────────────────────────
+    //
+    // Global atomic counter for events dropped because the bounded mpsc
+    // channel between the kernel ring-buffer drain and the detection
+    // pipeline was full. A long-running task spawned in `EbpfAgent::start`
+    // samples this counter once a minute and emits structured logs at WARN
+    // (any drops) or ERROR (>1000 drops/min — sustained loss likely
+    // hides attacker activity).
+    //
+    // Exposed via `ebpf_dropped_events_total()` for orchestrators that
+    // want to surface it as a Prometheus counter or similar.
+    pub static EBPF_DROPPED_EVENTS: AtomicU64 = AtomicU64::new(0);
+
+    /// Total number of eBPF events dropped since process start because the
+    /// in-process channel was full. Monotonic, never decreases. Reading
+    /// this is `Relaxed` — exact precision is not required, the operator
+    /// cares about the order of magnitude and the trend.
+    pub fn ebpf_dropped_events_total() -> u64 {
+        EBPF_DROPPED_EVENTS.load(Ordering::Relaxed)
+    }
+
+    /// Total number of probes the loader attempts to attach. Used by
+    /// `EbpfAgent::start` to decide between "0 attached → hard error",
+    /// "some missing → degraded warn", and "all attached → all good".
+    const TOTAL_PROBES: usize = 5;
 
     // ── Generated skeletons ───────────────────────────────────────────────
     //
@@ -162,6 +200,15 @@ pub mod linux {
             #[source]
             source: libbpf_rs::Error,
         },
+        /// Every probe attach attempt failed. The agent is a no-op in this
+        /// state, so we surface it as a hard error to the caller rather
+        /// than silently returning `Ok` with `attached_probes == 0` —
+        /// silently degraded telemetry is a security-relevant blind spot.
+        #[error(
+            "eBPF agent attached 0 probes — kernel may lack BTF or process \
+             lacks CAP_BPF/CAP_SYS_ADMIN (see prior warn! logs for per-probe causes)"
+        )]
+        NoProbesAttached,
     }
 
     // ── Agent ─────────────────────────────────────────────────────────────
@@ -170,8 +217,10 @@ pub mod linux {
     ///
     /// Programs and their auto-attached `Link`s live inside the leaked
     /// skeletons (see the per-probe attach helpers). This struct exists only
-    /// to expose the count of live probes to callers that want to assert at
-    /// least one probe is running.
+    /// to expose the count of live probes (always `>= 1` because
+    /// [`EbpfAgent::start`] returns [`EbpfLoadError::NoProbesAttached`]
+    /// when no probe attached) and may be `< TOTAL_PROBES` if the agent is
+    /// running in degraded mode.
     ///
     /// Dropping this struct does **not** detach the probes — the leaked
     /// skeletons keep them attached for the lifetime of the process. That is
@@ -190,17 +239,31 @@ pub mod linux {
         /// Load and attach all eBPF probes, then start draining ring buffers.
         ///
         /// Returns `(Self, Receiver<EbpfEvent>)`. The caller must drive the
-        /// receiver — events are dropped silently when the channel is full
-        /// (back-pressure on the kernel side is preferred over blocking the
-        /// drain task).
+        /// receiver — events that overflow the bounded internal channel are
+        /// counted in [`EBPF_DROPPED_EVENTS`] and a background task logs
+        /// the per-minute delta (back-pressure on the kernel side is
+        /// preferred over blocking the drain task).
         ///
-        /// Probes are loaded best-effort: an error on one probe is logged and
-        /// skipped rather than aborting the whole agent. See module-level docs.
+        /// Probes are loaded best-effort: an error on one probe is logged
+        /// and skipped rather than aborting the whole agent. If **every**
+        /// probe fails, returns [`EbpfLoadError::NoProbesAttached`] —
+        /// silently running with zero kernel telemetry would be a security
+        /// blind spot.
+        ///
+        /// Also spawns a background `tokio` task that samples
+        /// [`EBPF_DROPPED_EVENTS`] every 60 s and logs the delta at WARN
+        /// (any drop) or ERROR (>1000 drops/min). Must be called from
+        /// inside a Tokio runtime.
         pub fn start() -> Result<(Self, mpsc::Receiver<EbpfEvent>), EbpfLoadError> {
             let (tx, rx) = mpsc::channel::<EbpfEvent>(4096);
             let tx = Arc::new(tx);
 
             let mut attached: usize = 0;
+            // Names of probes that failed to attach — surfaced in a single
+            // structured warn! if we end up running in degraded mode so the
+            // operator can grep/alert on `missing_probes` rather than
+            // reconstructing the set from the per-probe warn!s above.
+            let mut missing: Vec<&'static str> = Vec::with_capacity(TOTAL_PROBES);
 
             // ── B2 — execve / execveat ────────────────────────────────────
             match attach_execve(Arc::clone(&tx)) {
@@ -208,7 +271,10 @@ pub mod linux {
                     attached += 1;
                     tracing::info!("eBPF probe attached: execve");
                 }
-                Err(e) => tracing::warn!(error = %e, "eBPF probe failed: execve — skipping"),
+                Err(e) => {
+                    missing.push("execve");
+                    tracing::warn!(error = %e, "eBPF probe failed: execve — skipping");
+                }
             }
 
             // ── B3 — do_mmap (RWX) + ptrace ──────────────────────────────
@@ -217,7 +283,10 @@ pub mod linux {
                     attached += 1;
                     tracing::info!("eBPF probe attached: memory");
                 }
-                Err(e) => tracing::warn!(error = %e, "eBPF probe failed: memory — skipping"),
+                Err(e) => {
+                    missing.push("memory");
+                    tracing::warn!(error = %e, "eBPF probe failed: memory — skipping");
+                }
             }
 
             // ── B4 — sys_enter_openat on /etc/ld* and /etc/cr* ───────────
@@ -227,7 +296,8 @@ pub mod linux {
                     tracing::info!("eBPF probe attached: persistence");
                 }
                 Err(e) => {
-                    tracing::warn!(error = %e, "eBPF probe failed: persistence — skipping")
+                    missing.push("persistence");
+                    tracing::warn!(error = %e, "eBPF probe failed: persistence — skipping");
                 }
             }
 
@@ -237,7 +307,10 @@ pub mod linux {
                     attached += 1;
                     tracing::info!("eBPF probe attached: privesc");
                 }
-                Err(e) => tracing::warn!(error = %e, "eBPF probe failed: privesc — skipping"),
+                Err(e) => {
+                    missing.push("privesc");
+                    tracing::warn!(error = %e, "eBPF probe failed: privesc — skipping");
+                }
             }
 
             // ── B6 — do_init_module ──────────────────────────────────────
@@ -246,10 +319,47 @@ pub mod linux {
                     attached += 1;
                     tracing::info!("eBPF probe attached: rootkit");
                 }
-                Err(e) => tracing::warn!(error = %e, "eBPF probe failed: rootkit — skipping"),
+                Err(e) => {
+                    missing.push("rootkit");
+                    tracing::warn!(error = %e, "eBPF probe failed: rootkit — skipping");
+                }
             }
 
-            tracing::info!(probes_attached = attached, "eBPF agent started");
+            // 0 probes ⇒ telemetry blind spot ⇒ hard error.
+            //
+            // Returning Ok here would let the rest of the system spin up
+            // happily under the false belief that kernel telemetry was
+            // available. That is the exact failure mode an attacker who
+            // controls capabilities (or runs in a kernel without BTF) would
+            // benefit from, so we surface it loudly and let the caller
+            // decide whether to abort or fall back.
+            if attached == 0 {
+                tracing::error!(
+                    "eBPF: no probes attached — kernel may lack BTF or process lacks CAP_BPF/CAP_SYS_ADMIN"
+                );
+                return Err(EbpfLoadError::NoProbesAttached);
+            }
+
+            // attached < TOTAL_PROBES ⇒ degraded mode ⇒ warn but proceed.
+            // Keeping the agent alive on partial failure is intentional —
+            // a single missing kprobe (e.g. commit_creds renamed across
+            // kernel versions) shouldn't take down the other four probes.
+            if attached < TOTAL_PROBES {
+                tracing::warn!(
+                    attached,
+                    total = TOTAL_PROBES,
+                    missing_probes = ?missing,
+                    "eBPF agent running in degraded mode — some probes failed to attach"
+                );
+            } else {
+                tracing::info!(probes_attached = attached, "eBPF agent started");
+            }
+
+            // Spawn the drop-monitor. It samples EBPF_DROPPED_EVENTS once a
+            // minute and logs the delta — the absolute counter is exposed
+            // separately via `ebpf_dropped_events_total()` for metrics.
+            // Detached on purpose: the task lives for the process lifetime.
+            tokio::spawn(drop_monitor());
 
             Ok((
                 Self {
@@ -257,6 +367,44 @@ pub mod linux {
                 },
                 rx,
             ))
+        }
+    }
+
+    // ── Drop monitor ─────────────────────────────────────────────────────
+    //
+    // Periodically sample the `EBPF_DROPPED_EVENTS` counter, compute the
+    // per-minute delta, and emit a structured log when non-zero. Critical
+    // threshold is 1000 events / 60 s — beyond that we are losing more than
+    // ~16 events/s, which is well above background noise and warrants
+    // pager-grade attention.
+    async fn drop_monitor() {
+        let mut last: u64 = EBPF_DROPPED_EVENTS.load(Ordering::Relaxed);
+        let mut ticker = tokio::time::interval(Duration::from_secs(60));
+        // The first tick fires immediately — skip it so the first observed
+        // window is a full 60 s long.
+        ticker.tick().await;
+        loop {
+            ticker.tick().await;
+            let current = EBPF_DROPPED_EVENTS.load(Ordering::Relaxed);
+            let delta = current.saturating_sub(last);
+            last = current;
+
+            if delta == 0 {
+                continue;
+            }
+            if delta > 1000 {
+                tracing::error!(
+                    dropped = delta,
+                    total = current,
+                    "eBPF event drop rate critical"
+                );
+            } else {
+                tracing::warn!(
+                    dropped = delta,
+                    total = current,
+                    "eBPF events dropped in last 60s"
+                );
+            }
         }
     }
 
@@ -271,7 +419,14 @@ pub mod linux {
         match tx.try_send(event) {
             Ok(()) => {}
             Err(mpsc::error::TrySendError::Full(_)) => {
-                tracing::warn!(probe, "eBPF event dropped — channel full");
+                // Bump the global drop counter so `drop_monitor` can log
+                // the rate. We deliberately do NOT log here — at saturation
+                // we'd flood the tracing subscriber with one warn! per
+                // dropped event, which is itself a denial-of-service
+                // vector. The 60 s aggregate is the operator-visible
+                // signal; this branch is hot-path code.
+                EBPF_DROPPED_EVENTS.fetch_add(1, Ordering::Relaxed);
+                tracing::trace!(probe, "eBPF event dropped — channel full");
             }
             Err(mpsc::error::TrySendError::Closed(_)) => {
                 // Receiver gone: caller has shut down the consumer. Stop

@@ -158,14 +158,16 @@ jobs:
 
   # ─────────────────────────────────────────────────────────────
   # cargo-audit — RustSec advisory database scan
-  # Non-blocking for first adoption (continue-on-error: true) —
-  # we want signal, not a release blocker. Tighten by removing
-  # continue-on-error once the workspace is clean and pinned.
+  # Blocking: a known-vuln crate in the lockfile fails CI.
+  # The previous `continue-on-error: true` treated advisories as
+  # advisory-only — see [CI-AUDIT-SOFT] in docs/security-audit-202604.md.
+  # If a transitive advisory becomes unavoidable, prefer adding a
+  # narrowly-scoped ignore in `.cargo/audit.toml` over re-softening
+  # the whole job.
   # ─────────────────────────────────────────────────────────────
   audit:
     name: cargo-audit
     runs-on: ubuntu-latest
-    continue-on-error: true
     # `rustsec/audit-check` publishes its findings as a check-run, which
     # requires `checks: write` on top of the default `contents: read`.
     permissions:
@@ -176,3 +178,37 @@ jobs:
       - uses: rustsec/audit-check@v2.0.0
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
+
+  # ─────────────────────────────────────────────────────────────
+  # cargo-deny — broader supply-chain checks (advisories, bans,
+  # licenses, sources). Config in `deny.toml` at repo root.
+  # ─────────────────────────────────────────────────────────────
+  cargo-deny:
+    name: cargo deny
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          log-level: warn
+          command: check
+          arguments: --all-features
+
+  # ─────────────────────────────────────────────────────────────
+  # govulncheck — Go vulnerability scan (analyses both go.sum and
+  # actual call graph reachability, lower false-positive rate
+  # than a flat advisory match).
+  # ─────────────────────────────────────────────────────────────
+  govulncheck:
+    name: Go vulnerability scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+      - name: Install govulncheck
+        run: go install golang.org/x/vuln/cmd/govulncheck@latest
+      - name: Run govulncheck
+        working-directory: go
+        run: govulncheck ./...

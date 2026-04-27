@@ -10,10 +10,22 @@
 
 #[cfg(target_os = "linux")]
 pub mod linux {
+    use std::sync::atomic::{AtomicU64, Ordering};
+
     use thiserror::Error;
     use tokio::sync::mpsc;
 
     use crate::events::EbpfEvent;
+
+    /// Always 0 in stub mode — kept for symbol parity with the real
+    /// loader so downstream metrics code can read it unconditionally.
+    pub static EBPF_DROPPED_EVENTS: AtomicU64 = AtomicU64::new(0);
+
+    /// Mirror of `loader::linux::ebpf_dropped_events_total`. Always 0
+    /// in stub mode (no events are produced, so none can be dropped).
+    pub fn ebpf_dropped_events_total() -> u64 {
+        EBPF_DROPPED_EVENTS.load(Ordering::Relaxed)
+    }
 
     /// Errors returned by [`EbpfAgent::start`].
     ///
@@ -47,6 +59,15 @@ pub mod linux {
             #[source]
             source: libbpf_rs::Error,
         },
+        /// Mirror of `loader::linux::EbpfLoadError::NoProbesAttached`.
+        /// The stub never returns this variant (it always returns Ok with
+        /// 0 attached probes — that is the explicit stub contract,
+        /// distinct from a runtime failure on a real loader).
+        #[error(
+            "eBPF agent attached 0 probes — kernel may lack BTF or process \
+             lacks CAP_BPF/CAP_SYS_ADMIN"
+        )]
+        NoProbesAttached,
     }
 
     /// Stub agent — exists so the type signature matches the real loader.

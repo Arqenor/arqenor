@@ -13,7 +13,7 @@ use winreg::{
 };
 
 #[cfg(windows)]
-use sha2::{Digest, Sha256};
+use crate::hash::{sha256_file_hex, DEFAULT_MAX_HASH_SIZE};
 
 pub struct WindowsPersistenceDetector;
 
@@ -777,14 +777,11 @@ fn enum_accessibility_files() -> Vec<PersistenceEntry> {
 
         let size = metadata.len();
 
-        // Compute SHA-256 for the command field (manual review baseline)
-        let hash = std::fs::read(&path)
-            .ok()
-            .map(|bytes| {
-                let mut hasher = Sha256::new();
-                hasher.update(&bytes);
-                format!("sha256:{}", hex::encode(hasher.finalize()))
-            })
+        // Compute SHA-256 for the command field (manual review baseline) via
+        // the shared streaming helper — uniform per-file size cap across the
+        // platform crate.
+        let hash = sha256_file_hex(&path, DEFAULT_MAX_HASH_SIZE)
+            .map(|h| format!("sha256:{h}"))
             .unwrap_or_else(|| "sha256:unreadable".to_string());
 
         // Flag if suspiciously small (potential replacement with stub/cmd.exe hardlink)

@@ -6,11 +6,12 @@
 //! C7 — Git hooks             (ATT&CK T1059)
 
 use arqenor_core::models::persistence::{PersistenceEntry, PersistenceKind};
-use sha2::{Digest, Sha256};
 use std::{
     fs,
     path::{Path, PathBuf},
 };
+
+use crate::hash::{sha256_file_hex, DEFAULT_MAX_HASH_SIZE};
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -39,15 +40,13 @@ fn parse_passwd() -> Vec<(String, String, String)> {
         .collect()
 }
 
-/// Compute SHA-256 of a file's contents, returning a hex string.
-/// Falls back to `"sha256:unreadable"` on any I/O error.
+/// Compute SHA-256 of a file's contents, returning a hex string prefixed by
+/// `sha256:`. Falls back to `"sha256:unreadable"` on any I/O error or when
+/// the file exceeds the global per-file size cap.
 fn sha256_file(path: &Path) -> String {
-    match fs::read(path) {
-        Ok(bytes) => {
-            let digest = Sha256::digest(&bytes);
-            format!("sha256:{}", hex::encode(digest))
-        }
-        Err(_) => "sha256:unreadable".to_owned(),
+    match sha256_file_hex(path, DEFAULT_MAX_HASH_SIZE) {
+        Some(hex) => format!("sha256:{hex}"),
+        None => "sha256:unreadable".to_owned(),
     }
 }
 

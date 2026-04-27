@@ -127,6 +127,39 @@ const PROVIDERS: &[GUID] = &[
     PROVIDER_KERNEL_REGISTRY,
 ];
 
+/// Provider grouping used by the mandatory-provider check at startup.
+///
+/// We treat the ETW session as functional only when it has at least one
+/// `process` provider AND at least one provider from `file` or `network`
+/// attached — without those, the session is structurally degraded (no
+/// process-creation visibility, no host I/O context) and the caller should
+/// surface the failure to the operator rather than silently keep running.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum ProviderGroup {
+    Process,
+    Network,
+    File,
+    Security,
+    Other,
+}
+
+fn provider_group(guid: &GUID) -> ProviderGroup {
+    match guid.data1 {
+        // Microsoft-Windows-Kernel-Process / Microsoft-Windows-Security-Auditing
+        0x22FB_2CD6 => ProviderGroup::Process,
+        0x5484_9625 => ProviderGroup::Process,
+        // Microsoft-Windows-Kernel-Network
+        0x7DD4_2A49 => ProviderGroup::Network,
+        // Microsoft-Windows-Kernel-File
+        0xEDD0_8927 => ProviderGroup::File,
+        // PowerShell, Security-Auditing, DNS, WMI, TaskScheduler, Registry
+        0xA0C1_853B | 0x1C95_126E | 0x1418_EF04 | 0xDE7B_24EA | 0x70EB_4F03 => {
+            ProviderGroup::Security
+        }
+        _ => ProviderGroup::Other,
+    }
+}
+
 // ── Global sender for the ETW callback thread ─────────────────────────────────
 
 /// Written once at `EtwConsumer::start()`.  `SyncSender` is `Sync + Send`.
@@ -366,8 +399,18 @@ impl EtwConsumer {
         }
 
         // ── Step 2: EnableTraceEx2 for each provider ───────────────────────────
+        //
+        // Track which provider groups successfully attached. We allow some
+        // providers (e.g. Security-Auditing on hardened hosts) to fail, but
+        // require at least one Process provider AND one File or Network
+        // provider — the session is otherwise structurally degraded and we
+        // should surface that to the caller rather than pretending all is
+        // well.
+        let mut attached_groups: std::collections::HashSet<ProviderGroup> =
+            std::collections::HashSet::new();
+        let mut total_attached = 0usize;
         for guid in PROVIDERS {
-            if let Err(e) = unsafe {
+            match unsafe {
                 EnableTraceEx2(
                     session_handle,
                     guid,
@@ -380,10 +423,55 @@ impl EtwConsumer {
                 )
                 .ok()
             } {
-                // Warn but continue — some providers (e.g. Security-Auditing)
-                // require elevated privileges that may not always be present.
-                tracing::warn!("EnableTraceEx2 failed for provider {:08X}: {e}", guid.data1,);
+                Ok(()) => {
+                    attached_groups.insert(provider_group(guid));
+                    total_attached += 1;
+                }
+                Err(e) => {
+                    // Warn but continue — some providers (e.g. Security-Auditing)
+                    // require elevated privileges that may not always be present.
+                    tracing::warn!("EnableTraceEx2 failed for provider {:08X}: {e}", guid.data1,);
+                }
             }
+        }
+
+        if total_attached == 0 {
+            tracing::error!(
+                "ETW: 0 providers attached — run as Administrator with SeSystemProfilePrivilege"
+            );
+        }
+
+        let has_process = attached_groups.contains(&ProviderGroup::Process);
+        let has_file_or_net = attached_groups.contains(&ProviderGroup::File)
+            || attached_groups.contains(&ProviderGroup::Network);
+
+        if !(has_process && has_file_or_net) {
+            // Roll the session back so we don't leave a half-configured
+            // controller behind, then return a structured error.
+            let mut stop_props = make_props(&session_name_w);
+            // SAFETY: session_handle is a valid controller handle from
+            // StartTraceW (or the retry path) above.
+            let _ = unsafe {
+                ControlTraceW(
+                    session_handle,
+                    PCWSTR(std::ptr::null()),
+                    stop_props.as_mut_ptr() as *mut EVENT_TRACE_PROPERTIES,
+                    EVENT_TRACE_CONTROL_STOP,
+                )
+            };
+
+            let mut missing = Vec::new();
+            if !has_process {
+                missing.push("process");
+            }
+            if !has_file_or_net {
+                missing.push("file/network");
+            }
+
+            return Err(ArqenorError::Platform(format!(
+                "ETW session unusable — mandatory provider group(s) missing: {}",
+                missing.join(", ")
+            )));
         }
 
         // ── Step 3: OpenTrace ──────────────────────────────────────────────────

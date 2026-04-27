@@ -17,6 +17,7 @@ prost             = { workspace = true }
 prost-types       = "0.14"
 tokio             = { workspace = true }
 tokio-stream      = { workspace = true }
+tower             = { version = "0.5", features = ["limit"] }
 tracing           = { workspace = true }
 tracing-subscriber = { workspace = true }
 anyhow            = { workspace = true }

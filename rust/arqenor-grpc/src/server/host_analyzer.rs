@@ -6,6 +6,7 @@ use crate::{
         ProcessEvent as ProtoProcessEvent, ProcessInfo as ProtoProcessInfo, ScanRequest,
         SnapshotResponse,
     },
+    limits::{resolve_max_size_bytes, sanitize_meta_value, AllowedRoots},
 };
 use arqenor_core::traits::connection_monitor::spawn_polling_watch;
 use arqenor_core::{
@@ -22,6 +23,7 @@ use arqenor_platform::{
     new_connection_monitor, new_fs_scanner, new_persistence_detector, new_process_monitor,
 };
 use arqenor_store::IocSqliteStore;
+use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
 
@@ -34,6 +36,9 @@ use tonic::{Request, Response, Status};
 struct SharedDetectionState {
     ioc_db: Arc<RwLock<IocDatabase>>,
     sigma_rules: Vec<sigma::SigmaRule>,
+    /// Filesystem-scan allowlist used to gate `ScanFilesystem` requests.
+    /// See finding GRPC-PATH.
+    allowed_roots: AllowedRoots,
 }
 
 pub struct HostAnalyzerService {
@@ -41,7 +46,13 @@ pub struct HostAnalyzerService {
 }
 
 impl HostAnalyzerService {
-    pub fn new() -> Self {
+    /// Construct the service with an explicit filesystem-scan allowlist.
+    ///
+    /// The allowlist is canonicalized at construction time and consulted on
+    /// every incoming `ScanFilesystem` request. Pass an empty list to refuse
+    /// every scan request — useful for deployments where filesystem scanning
+    /// is not in scope.
+    pub fn new(allowed_roots: AllowedRoots) -> Self {
         let ioc_db = Arc::new(RwLock::new(IocDatabase::new()));
 
         // Best-effort initial feed load (blocking in constructor is acceptable
@@ -98,6 +109,7 @@ impl HostAnalyzerService {
             shared: Arc::new(SharedDetectionState {
                 ioc_db,
                 sigma_rules,
+                allowed_roots,
             }),
         }
     }
@@ -118,6 +130,14 @@ fn default_fim_path() -> std::path::PathBuf {
 
 // ── Alert conversion ──────────────────────────────────────────────────────────
 
+/// Sanitize every value of an `Alert.metadata` map before it crosses the
+/// gRPC boundary. See finding GRPC-METADATA in the 2026-04 audit.
+fn sanitize_metadata(meta: HashMap<String, String>) -> HashMap<String, String> {
+    meta.into_iter()
+        .map(|(k, v)| (k, sanitize_meta_value(&v)))
+        .collect()
+}
+
 fn core_alert_to_proto(a: arqenor_core::models::alert::Alert) -> common::Alert {
     let sev = match a.severity {
         CoreSeverity::Info => common::Severity::Info as i32,
@@ -134,9 +154,9 @@ fn core_alert_to_proto(a: arqenor_core::models::alert::Alert) -> common::Alert {
         id: a.id.to_string(),
         severity: sev,
         kind: a.kind,
-        message: a.message,
+        message: sanitize_meta_value(&a.message),
         occurred_at,
-        metadata: a.metadata,
+        metadata: sanitize_metadata(a.metadata),
         rule_id: a.rule_id.unwrap_or_default(),
         attack_id: a.attack_id.unwrap_or_default(),
     }
@@ -273,17 +293,29 @@ impl HostAnalyzer for HostAnalyzerService {
         req: Request<ScanRequest>,
     ) -> Result<Response<Self::ScanFilesystemStream>, Status> {
         let r = req.into_inner();
+
+        // Validate caller-supplied root_path against the canonical allowlist
+        // (finding GRPC-PATH). Any path outside one of the allowed roots, or
+        // any path that fails to canonicalize, is rejected with a precise
+        // gRPC status code so clients can distinguish input errors from
+        // policy denials.
+        let canonical_root = self.shared.allowed_roots.validate(&r.root_path)?;
+
+        // Cap caller-supplied max_size_bytes to a server-side maximum
+        // (finding GRPC-MAXSIZE). `0` is treated as "use server default"
+        // rather than "unbounded".
+        let max_size_bytes = resolve_max_size_bytes(r.max_size_bytes)?;
+
         let scanner = new_fs_scanner();
         let config = arqenor_core::models::file_event::ScanConfig {
             recursive: r.recursive,
             include_extensions: r.include_exts,
-            max_size_bytes: (r.max_size_bytes > 0).then_some(r.max_size_bytes),
+            max_size_bytes: Some(max_size_bytes),
             compute_hash: true,
         };
 
-        let root = std::path::PathBuf::from(&r.root_path);
         let events = scanner
-            .scan_path(&root, &config)
+            .scan_path(&canonical_root, &config)
             .await
             .map_err(|e| Status::internal(e.to_string()))?;
 
@@ -318,7 +350,9 @@ impl HostAnalyzer for HostAnalyzerService {
         let root = if r.root_path.trim().is_empty() {
             default_fim_path()
         } else {
-            std::path::PathBuf::from(&r.root_path)
+            // When a caller supplies a path, gate it through the same
+            // allowlist used by `scan_filesystem` (finding GRPC-PATH).
+            self.shared.allowed_roots.validate(&r.root_path)?
         };
 
         let (core_tx, mut core_rx) =
@@ -459,6 +493,7 @@ impl HostAnalyzer for HostAnalyzerService {
 mod tests {
     use super::*;
     use arqenor_core::models::{
+        alert::{Alert as CoreAlert, Severity as CoreAlertSeverity},
         file_event::{FileEvent as CoreFileEvent, FileEventKind},
         process::{
             ProcessEvent as CoreProcessEvent, ProcessEventKind, ProcessInfo as CoreProcessInfo,
@@ -566,6 +601,42 @@ mod tests {
         assert_eq!(proto.size, 0);
     }
 
+    /// Exercising the GRPC-METADATA fix: control characters in metadata
+    /// values (and in `message`) must be stripped before crossing the
+    /// gRPC boundary.
+    #[test]
+    fn alert_to_proto_sanitizes_metadata_and_message() {
+        let mut metadata = HashMap::new();
+        metadata.insert(
+            "cmdline".to_string(),
+            "powershell\n[ALERT]\nSEVERITY=critical".to_string(),
+        );
+        metadata.insert("clean".to_string(), "C:\\Users\\bob".to_string());
+
+        let alert = CoreAlert {
+            id: Uuid::new_v4(),
+            severity: CoreAlertSeverity::High,
+            kind: "test".into(),
+            message: "first\r\nsecond".into(),
+            occurred_at: Utc::now(),
+            metadata,
+            rule_id: None,
+            attack_id: None,
+        };
+        let proto = core_alert_to_proto(alert);
+
+        let cmdline = proto.metadata.get("cmdline").expect("cmdline key");
+        assert!(!cmdline.contains('\n'));
+        assert!(!cmdline.contains('\r'));
+
+        // Printable ASCII / valid Unicode is preserved verbatim.
+        assert_eq!(proto.metadata.get("clean").unwrap(), "C:\\Users\\bob");
+
+        // The `message` field is also sanitized at the boundary.
+        assert!(!proto.message.contains('\n'));
+        assert!(!proto.message.contains('\r'));
+    }
+
     /// Smoke test: `watch_filesystem` returns a live gRPC stream on a valid
     /// temporary directory.  We don't assert that any event is produced
     /// (platform watchers may batch or suppress changes during test runs),
@@ -586,7 +657,9 @@ mod tests {
         use tokio_stream::StreamExt;
 
         let dir = tempfile::tempdir().expect("tempdir");
-        let svc = HostAnalyzerService::new();
+        // Allow the tempdir explicitly so the path passes the GRPC-PATH gate.
+        let allowed = AllowedRoots::new([dir.path()]);
+        let svc = HostAnalyzerService::new(allowed);
 
         let req = Request::new(crate::host::ScanRequest {
             root_path: dir.path().to_string_lossy().into_owned(),

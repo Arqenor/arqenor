@@ -5,45 +5,82 @@ import (
 	"io"
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"go.uber.org/zap"
 
+	"arqenor/go/internal/api/middleware"
+	"arqenor/go/internal/config"
 	"arqenor/go/internal/scanner"
 	"arqenor/go/internal/store"
 )
 
 // ── Alert broadcaster (fan-out to SSE subscribers) ───────────────────────────
 
+// AlertBroadcaster fans alerts out to any number of SSE subscribers up
+// to MaxSubscribers; further subscribe attempts return ok=false so the
+// HTTP handler can respond 503.
+//
+// The subscriber count is tracked with atomic.Int32 (cheap to read in the
+// 503 fast-path) and reconciled with the map under the mutex on
+// add/remove so the two views never diverge.
 type AlertBroadcaster struct {
-	mu   sync.Mutex
-	subs map[string]chan store.Alert
+	mu             sync.Mutex
+	subs           map[string]chan store.Alert
+	subCount       atomic.Int32
+	maxSubscribers int32
 }
 
-func NewAlertBroadcaster() *AlertBroadcaster {
-	return &AlertBroadcaster{subs: make(map[string]chan store.Alert)}
+// NewAlertBroadcaster returns a broadcaster that admits up to maxSubs
+// concurrent subscribers. A non-positive value disables the cap (legacy
+// behaviour, used in tests).
+func NewAlertBroadcaster(maxSubs int) *AlertBroadcaster {
+	max := int32(maxSubs)
+	if maxSubs <= 0 {
+		max = 0 // 0 = unlimited
+	}
+	return &AlertBroadcaster{
+		subs:           make(map[string]chan store.Alert),
+		maxSubscribers: max,
+	}
 }
 
-func (b *AlertBroadcaster) Subscribe() (id string, ch <-chan store.Alert) {
+// Subscribe registers a new fan-out channel. Returns ok=false when the
+// configured cap is exceeded; the caller MUST NOT use the returned id/ch
+// in that case.
+func (b *AlertBroadcaster) Subscribe() (id string, ch <-chan store.Alert, ok bool) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if b.maxSubscribers > 0 && b.subCount.Load() >= b.maxSubscribers {
+		return "", nil, false
+	}
+
 	raw := make(chan store.Alert, 64)
 	id = uuid.New().String()
-	b.mu.Lock()
 	b.subs[id] = raw
-	b.mu.Unlock()
-	return id, raw
+	b.subCount.Add(1)
+	return id, raw, true
 }
 
+// Unsubscribe removes a previously-registered subscriber. Safe to call
+// with an unknown id.
 func (b *AlertBroadcaster) Unsubscribe(id string) {
 	b.mu.Lock()
+	defer b.mu.Unlock()
 	if ch, ok := b.subs[id]; ok {
 		close(ch)
 		delete(b.subs, id)
+		b.subCount.Add(-1)
 	}
-	b.mu.Unlock()
 }
 
+// Publish delivers an alert to every subscriber, dropping the message
+// for any subscriber whose buffer is full (back-pressure should not
+// block the publisher / detection pipeline).
 func (b *AlertBroadcaster) Publish(a store.Alert) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -55,6 +92,11 @@ func (b *AlertBroadcaster) Publish(a store.Alert) {
 	}
 }
 
+// SubscriberCount is exposed for tests / metrics.
+func (b *AlertBroadcaster) SubscriberCount() int {
+	return int(b.subCount.Load())
+}
+
 // ── HTTP server ───────────────────────────────────────────────────────────────
 
 type Server struct {
@@ -62,17 +104,28 @@ type Server struct {
 	store       *store.Store
 	logger      *zap.Logger
 	broadcaster *AlertBroadcaster
+	cfg         config.ApiConfig
 }
 
-func NewServer(logger *zap.Logger, sc *scanner.Scanner, st *store.Store, b *AlertBroadcaster) *gin.Engine {
-	srv := &Server{scanner: sc, store: st, logger: logger, broadcaster: b}
+// NewServer wires the Gin router with security middlewares (rate limit,
+// redacting request logger), the v1 routes, and the alert broadcaster.
+//
+// The IPRateLimiter is owned by the returned engine — there is currently
+// no Stop hook because the orchestrator process exits when the engine
+// stops serving. Add one if/when the server is ever embedded in a longer
+// host process.
+func NewServer(logger *zap.Logger, sc *scanner.Scanner, st *store.Store, b *AlertBroadcaster, cfg config.ApiConfig) *gin.Engine {
+	srv := &Server{scanner: sc, store: st, logger: logger, broadcaster: b, cfg: cfg}
 
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
 	r.Use(gin.Recovery())
-	r.Use(requestLogger(logger))
+	r.Use(middleware.RequestLogger(logger))
+
+	rl := middleware.NewIPRateLimiter(cfg.RateLimitPerSec, cfg.RateLimitPerSec*2)
 
 	v1 := r.Group("/api/v1")
+	v1.Use(middleware.RateLimit(rl))
 	{
 		v1.GET("/health", srv.handleHealth)
 		v1.GET("/alerts", srv.handleListAlerts)
@@ -100,11 +153,18 @@ func (s *Server) handleListAlerts(c *gin.Context) {
 }
 
 // handleStreamAlerts streams real-time alerts as Server-Sent Events.
-// Clients subscribe to GET /api/v1/alerts/stream and receive each alert as a
-// JSON-encoded "alert" SSE event.  The stream stays open until the client
-// disconnects or the server shuts down.
+//
+// Concurrency cap: enforced by AlertBroadcaster.Subscribe. When the cap
+// is hit, returns 503 Service Unavailable rather than a 429 (this is a
+// resource-saturation condition, not a per-client throttle).
 func (s *Server) handleStreamAlerts(c *gin.Context) {
-	id, ch := s.broadcaster.Subscribe()
+	id, ch, ok := s.broadcaster.Subscribe()
+	if !ok {
+		c.JSON(http.StatusServiceUnavailable, gin.H{
+			"error": "max sse connections reached",
+		})
+		return
+	}
 	defer s.broadcaster.Unsubscribe(id)
 
 	c.Header("Content-Type", "text/event-stream")
@@ -160,17 +220,35 @@ func (s *Server) handleStartScan(c *gin.Context) {
 		return
 	}
 
+	// Detach the scan from the request lifetime: we already returned
+	// 202 to the client, so c.Request.Context() will be cancelled the
+	// moment the response is flushed. Use a fresh background context
+	// bounded by the configured scan timeout to prevent goroutine
+	// leaks if scanner.ScanCIDR hangs (slow DNS / unresponsive hosts).
+	timeout := time.Duration(s.cfg.ScanTimeoutSeconds) * time.Second
 	go func() {
-		results, err := s.scanner.ScanCIDR(context.Background(), req.CIDR, req.Ports)
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		defer cancel()
+
+		results, err := s.scanner.ScanCIDR(ctx, req.CIDR, req.Ports)
 		if err != nil {
-			s.logger.Error("scan failed", zap.String("id", scanID), zap.Error(err))
-			s.store.UpdateScan(scanID, "error", 0)
+			s.logger.Error("scan failed",
+				zap.String("id", scanID),
+				zap.Error(err),
+			)
+			if updErr := s.store.UpdateScan(scanID, "error", 0); updErr != nil {
+				s.logger.Error("update scan", zap.Error(updErr))
+			}
 			return
 		}
 		for _, h := range results {
-			s.store.UpsertHost(h.IP, h.Hostname)
+			if err := s.store.UpsertHost(h.IP, h.Hostname); err != nil {
+				s.logger.Warn("upsert host", zap.String("ip", h.IP), zap.Error(err))
+			}
 		}
-		s.store.UpdateScan(scanID, "done", len(results))
+		if err := s.store.UpdateScan(scanID, "done", len(results)); err != nil {
+			s.logger.Error("update scan", zap.Error(err))
+		}
 	}()
 
 	c.JSON(http.StatusAccepted, gin.H{"scan_id": scanID, "cidr": req.CIDR, "status": "running"})
@@ -184,15 +262,4 @@ func (s *Server) handleListHosts(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"hosts": hosts})
-}
-
-func requestLogger(logger *zap.Logger) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		c.Next()
-		logger.Info("request",
-			zap.String("method", c.Request.Method),
-			zap.String("path", c.Request.URL.Path),
-			zap.Int("status", c.Writer.Status()),
-		)
-	}
 }

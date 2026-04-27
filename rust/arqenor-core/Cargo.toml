@@ -14,7 +14,16 @@ sha2        = { workspace = true }
 hex         = { workspace = true }
 tokio       = { workspace = true }
 tracing     = { workspace = true }
-serde_yaml  = "0.9"
+once_cell   = { workspace = true }
+toml        = { workspace = true }
+# DEP-SERDE_YAML: replaced unmaintained `serde_yaml` (deprecated 2024-04) with
+# the actively maintained drop-in fork `serde_yml`.
+serde_yml   = "0.0.12"
 regex       = "1"
 base64      = "0.22"
-reqwest     = { version = "0.12", features = ["rustls-tls"], default-features = false }
+csv         = "1"
+futures-util = "0.3"
+reqwest     = { version = "0.12", features = ["rustls-tls", "stream"], default-features = false }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

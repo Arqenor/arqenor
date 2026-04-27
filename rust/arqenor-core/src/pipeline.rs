@@ -28,7 +28,7 @@ use crate::{
     correlation::CorrelationEngine,
     ioc::{checker::IocChecker, IocDatabase},
     models::{
-        alert::{Alert, Severity},
+        alert::{sanitize_metadata_value, Alert, Severity},
         connection::ConnectionInfo,
         file_event::{FileEvent, FileEventKind},
         incident::Incident,
@@ -547,8 +547,21 @@ impl DetectionPipeline {
 
     /// Send an alert on the output channel and ingest it into the correlation
     /// engine.  Returns `false` if the alert channel is closed.
-    async fn emit_alert(&self, alert: Alert) -> bool {
+    ///
+    /// CORR-INJECT: metadata values are sanitised at the pipeline boundary
+    /// before the alert reaches *any* downstream sink (correlation,
+    /// `alert_tx`, gRPC stream, SSE). This is the single chokepoint at which
+    /// untrusted-source content (process command lines, file paths, IOC
+    /// payloads) is forced to be safe for line-oriented protocols. The
+    /// correlation engine repeats the scrub defensively on its own boundary.
+    async fn emit_alert(&self, mut alert: Alert) -> bool {
         self.stats.alerts_fired.fetch_add(1, Ordering::Relaxed);
+
+        for value in alert.metadata.values_mut() {
+            if value.chars().any(|c| c.is_control() && c != '\t') {
+                *value = sanitize_metadata_value(value);
+            }
+        }
 
         // Ingest into correlation engine.
         let escalated_incident = {

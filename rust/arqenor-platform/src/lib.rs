@@ -6,6 +6,8 @@ pub mod macos;
 pub mod windows;
 
 pub mod fim;
+pub mod hash;
+pub mod path_validate;
 
 #[cfg(feature = "yara")]
 pub mod yara_rules;

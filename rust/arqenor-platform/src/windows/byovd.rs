@@ -4,13 +4,14 @@
 //! against an embedded blocklist of known-vulnerable driver hashes sourced
 //! from <https://www.loldrivers.io>.
 
-use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::mem::size_of;
 use windows::Win32::Foundation::MAX_PATH;
 use windows::Win32::System::ProcessStatus::{
     EnumDeviceDrivers, GetDeviceDriverBaseNameW, GetDeviceDriverFileNameW,
 };
+
+use crate::hash::{sha256_file_hex, DEFAULT_MAX_HASH_SIZE};
 
 // ── Public types ────────────────────────────────────────────────────────────
 
@@ -49,14 +50,12 @@ pub fn enumerate_drivers() -> Vec<DriverInfo> {
         // Convert device path (\SystemRoot\...) to a real filesystem path.
         let fs_path = device_path_to_fs(&device_path);
 
-        let sha256 = match std::fs::read(&fs_path) {
-            Ok(data) => {
-                let mut hasher = Sha256::new();
-                hasher.update(&data);
-                hex::encode(hasher.finalize())
-            }
-            Err(_) => String::new(),
-        };
+        // Stream the driver image rather than buffering — kernel drivers are
+        // small (<10 MiB in practice) but we still go through the shared
+        // capped helper so every hashing site in the crate behaves
+        // identically.
+        let sha256 = sha256_file_hex(std::path::Path::new(&fs_path), DEFAULT_MAX_HASH_SIZE)
+            .unwrap_or_default();
 
         // Simple signing check: Authenticode verification is expensive; for
         // now we consider drivers with an empty hash (unreadable) as unsigned.

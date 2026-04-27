@@ -18,6 +18,29 @@ use windows::Win32::System::Diagnostics::Debug::ReadProcessMemory;
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::Threading::*;
 
+/// ntdll.dll is small (~2 MiB) — pin a tight cap rather than reusing the
+/// generic 512 MiB default. A larger file at this path is itself a finding.
+const NTDLL_MAX_BYTES: u64 = 16 * 1024 * 1024;
+
+/// Read the on-disk copy of ntdll.dll into memory through the shared streaming
+/// helper so every read of this binary in the crate goes through the same
+/// capped path.
+fn read_ntdll_disk() -> std::io::Result<Vec<u8>> {
+    use std::io::Read;
+    let path = std::path::Path::new(r"C:\Windows\System32\ntdll.dll");
+    let mut file = std::fs::File::open(path)?;
+    let len = file.metadata()?.len();
+    if len > NTDLL_MAX_BYTES {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!("ntdll.dll unexpectedly large: {len} bytes"),
+        ));
+    }
+    let mut bytes = Vec::with_capacity(len as usize);
+    file.read_to_end(&mut bytes)?;
+    Ok(bytes)
+}
+
 /// Number of bytes to compare at the start of each function.
 const COMPARE_BYTES: usize = 16;
 
@@ -67,7 +90,7 @@ pub enum HookType {
 /// Reads ntdll.dll from disk and compares critical function prologues with
 /// the in-memory copy loaded in this process.
 pub fn check_ntdll_hooks() -> Vec<NtdllHookResult> {
-    let disk_ntdll = match std::fs::read(r"C:\Windows\System32\ntdll.dll") {
+    let disk_ntdll = match read_ntdll_disk() {
         Ok(data) => data,
         Err(_) => return Vec::new(),
     };
@@ -138,7 +161,7 @@ pub fn check_ntdll_hooks() -> Vec<NtdllHookResult> {
 /// Opens the target process with VM_READ access and compares ntdll function
 /// prologues against the on-disk copy.
 pub fn check_ntdll_hooks_remote(pid: u32) -> Result<Vec<NtdllHookResult>, ArqenorError> {
-    let disk_ntdll = std::fs::read(r"C:\Windows\System32\ntdll.dll")
+    let disk_ntdll = read_ntdll_disk()
         .map_err(|e| ArqenorError::Platform(format!("read ntdll.dll from disk: {e}")))?;
 
     // We need to find ntdll's base in the remote process. We use the same

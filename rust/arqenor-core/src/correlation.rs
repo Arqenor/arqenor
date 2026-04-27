@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use chrono::{Duration, Utc};
 use uuid::Uuid;
 
-use crate::models::alert::{Alert, Severity};
+use crate::models::alert::{sanitize_metadata_value, Alert, Severity};
 use crate::models::incident::Incident;
 
 // ── Constants ────────────────────────────────────────────────────────────────
@@ -23,6 +23,15 @@ const MEDIUM_THRESHOLD: u32 = 30;
 
 /// How long completed incidents are retained (24 hours).
 const COMPLETED_RETENTION_SECS: i64 = 24 * 60 * 60;
+
+/// Hard cap on the number of simultaneously open incidents (active + orphan).
+///
+/// Reaching this cap means either (a) the caller forgot to invoke
+/// [`CorrelationEngine::flush_stale`] periodically, or (b) the host is under
+/// genuine high-volume attack and stale incidents are accumulating faster
+/// than they expire. Either way, the engine forces an immediate flush to
+/// reclaim memory before accepting more ingestion.
+pub const MAX_ACTIVE_INCIDENTS: usize = 100_000;
 
 // ── Scoring ──────────────────────────────────────────────────────────────────
 
@@ -153,6 +162,21 @@ fn orphan_key(alert: &Alert) -> u64 {
 /// Maintains active incidents, evaluates new alerts, and flushes stale ones.
 ///
 /// Thread safety: wrap in `Arc<Mutex<CorrelationEngine>>` at the call site.
+///
+/// # Memory management — IMPORTANT
+///
+/// The engine never evicts incidents on its own except inside
+/// [`CorrelationEngine::flush_stale`]. **Callers MUST invoke `flush_stale`
+/// (or [`flush_stale_with_window`](Self::flush_stale_with_window)) on a
+/// fixed cadence — every 60 seconds is the value the bundled detection
+/// pipeline uses.** Failing to do so causes unbounded memory growth: each
+/// novel `(PID, attack_id)` pair allocates an [`Incident`] that is held until
+/// flushed.
+///
+/// As a defence-in-depth backstop the engine also forces a flush when the
+/// number of active+orphan incidents reaches [`MAX_ACTIVE_INCIDENTS`].
+/// Hitting that cap is logged at WARN level and is a clear signal that the
+/// caller's flush schedule is broken.
 pub struct CorrelationEngine {
     active: HashMap<u32, Incident>,
     orphan: HashMap<u64, Incident>,
@@ -177,7 +201,38 @@ impl CorrelationEngine {
     }
 
     /// Ingest a new alert.  Returns the incident if severity escalated.
-    pub fn ingest(&mut self, alert: Alert) -> Option<&Incident> {
+    ///
+    /// Metadata values on the incoming alert are passed through
+    /// [`sanitize_metadata_value`] to neutralise control-character injection
+    /// from untrusted sources (process command lines, IOC feed bodies,
+    /// attacker-controlled file paths) before the alert reaches downstream
+    /// sinks (SSE, log lines, JSON).
+    pub fn ingest(&mut self, mut alert: Alert) -> Option<&Incident> {
+        // CORR-INJECT: scrub metadata values once at the boundary. We mutate
+        // the value strings in place to avoid re-hashing the keys.
+        for value in alert.metadata.values_mut() {
+            // Fast path: only allocate if a control character is actually
+            // present.
+            if value.chars().any(|c| c.is_control() && c != '\t') {
+                *value = sanitize_metadata_value(value);
+            }
+        }
+
+        // CORR-LEAK: backstop against runaway incident accumulation when the
+        // caller's flush cadence stalls. We force a stale-flush *before*
+        // creating any new incident, then re-check; if still over budget we
+        // reluctantly drop the oldest active incidents to make room.
+        if self.active.len() + self.orphan.len() >= MAX_ACTIVE_INCIDENTS {
+            tracing::warn!(
+                active = self.active.len(),
+                orphan = self.orphan.len(),
+                cap = MAX_ACTIVE_INCIDENTS,
+                "correlation engine reached active-incident cap — forcing flush_stale; \
+                 callers must invoke flush_stale() periodically (see CorrelationEngine docs)"
+            );
+            let _ = self.flush_stale();
+        }
+
         let now = Utc::now();
         let pid = extract_pid(&alert);
         let ppid = extract_ppid(&alert);
@@ -415,6 +470,23 @@ mod tests {
         let incidents = engine.active_incidents();
         assert_eq!(incidents.len(), 1);
         assert_eq!(incidents[0].alerts.len(), 2);
+    }
+
+    #[test]
+    fn metadata_control_chars_are_sanitized() {
+        // CORR-INJECT: untrusted command-line content with CRLF must not
+        // survive into the incident.
+        let mut engine = CorrelationEngine::new();
+        let mut alert = make_alert(Severity::Medium, Some("T1059"), Some(7));
+        alert
+            .metadata
+            .insert("cmdline".into(), "powershell\r\n200 OK\r\n".into());
+        engine.ingest(alert);
+        let inc = &engine.active_incidents()[0];
+        let scrubbed = inc.alerts[0].metadata.get("cmdline").unwrap();
+        assert!(!scrubbed.contains('\n'));
+        assert!(!scrubbed.contains('\r'));
+        assert!(scrubbed.contains("powershell"));
     }
 
     #[test]

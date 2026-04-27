@@ -1,0 +1,64 @@
+# cargo-deny configuration for arqenor (OSS).
+#
+# Documentation: https://embarkstudios.github.io/cargo-deny/
+#
+# Wired into CI via `.github/workflows/ci.yml` (job `cargo-deny`).
+# Run locally with: cargo install cargo-deny && cargo deny check --all-features
+
+[graph]
+all-features = true
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Advisories — RustSec database. We deliberately keep this stricter than
+# `cargo audit` (which is wired separately): yanked crates are denied here
+# because relying on a yanked version is a supply-chain footgun even when no
+# advisory has been filed.
+# ─────────────────────────────────────────────────────────────────────────────
+[advisories]
+db-urls = ["https://github.com/rustsec/advisory-db"]
+yanked  = "deny"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Bans — duplicate-version detection. Currently warn-only because the
+# workspace pulls 3 versions of `windows-sys` transitively (see
+# [DEP-WINSYS-DUP] in docs/security-audit-202604.md). Promote to "deny"
+# once the duplicate count is down to 1.
+# ─────────────────────────────────────────────────────────────────────────────
+[bans]
+multiple-versions = "warn"
+deny = []
+skip = []
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Licenses — explicit allow-list. Apache-2.0 is the project's own license;
+# the rest is the standard set of permissive/weak-copyleft licenses
+# permitted in upstream Rust crates. Anything outside this list will
+# fail CI and force a deliberate decision (vendor, replace, or extend
+# this list with justification).
+# ─────────────────────────────────────────────────────────────────────────────
+[licenses]
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "Unicode-DFS-2016",
+    "Unicode-3.0",
+    "MPL-2.0",
+    "OpenSSL",
+    "CC0-1.0",
+]
+exceptions = []
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Sources — refuse unknown registries / git remotes outside an allow-list.
+# Currently warn-only to surface findings without breaking CI; tighten
+# once the workspace is fully audited.
+# ─────────────────────────────────────────────────────────────────────────────
+[sources]
+unknown-registry = "warn"
+unknown-git      = "warn"
+allow-git        = []
