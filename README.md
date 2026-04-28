@@ -9,7 +9,7 @@
     <a href="https://github.com/Arqenor/arqenor/actions/workflows/ci.yml"><img src="https://github.com/Arqenor/arqenor/actions/workflows/ci.yml/badge.svg?branch=dev" alt="CI" /></a>
     <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License: Apache 2.0" /></a>
     <img src="https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20macOS-blue" alt="Platform" />
-    <img src="https://img.shields.io/badge/Rust-1.80%2B-orange" alt="Rust 1.80+" />
+    <img src="https://img.shields.io/badge/Rust-1.87%2B-orange" alt="Rust 1.87+" />
     <img src="https://img.shields.io/badge/Go-1.23%2B-blue" alt="Go 1.23+" />
   </p>
 </div>
@@ -86,7 +86,7 @@ ARQENOR gives independent developers, small teams, and security researchers comm
 
 | Tool | Version | Purpose |
 |---|---|---|
-| Rust toolchain | 1.80+ | Build Rust crates |
+| Rust toolchain | 1.87+ | Build Rust crates |
 | Go | 1.23+ | Build orchestrator |
 | protoc | 3.x | Regenerate gRPC stubs |
 | protoc-gen-go / protoc-gen-go-grpc | latest | Go proto codegen |
@@ -248,6 +248,13 @@ See [`docs/roadmap/ROADMAP.md`](docs/roadmap/ROADMAP.md) for the full 6-phase pl
 | **Phase 4** | SIGMA engine (3000+ rules), IOC feeds (abuse.ch), correlation engine, PE static analyzer | ✅ Done (behavioral ML pending) |
 | **Phase 5** | Memory forensics (VAD, hollowing, NTDLL hooks), BYOVD (50 drivers), YARA scanning (opt-in) | ✅ Done |
 | **Phase 6** | Cloud dashboard, fleet management, automated response | Not started |
+
+---
+
+## Current limitations
+
+- **eBPF probes** — The loader in `arqenor-ebpf/src/loader.rs` is currently a scaffold. The 5 planned probes (execve, memory, persistence, privesc, rootkit) are not yet attached at runtime. Production Linux kernel telemetry relies on auditd / journald integration meanwhile.
+- **YARA scanning** — `yara-x` is not yet wired into `arqenor-platform`. Rule loading and in-memory scanning are planned; the feature is currently advertised as a roadmap item, not a shipped capability.
 
 ---
 

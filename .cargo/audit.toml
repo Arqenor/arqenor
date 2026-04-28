@@ -1,0 +1,30 @@
+# cargo-audit configuration.
+#
+# Wired into CI via `.github/workflows/ci.yml` (job `cargo-audit`, action
+# `rustsec/audit-check`). Mirrors the `[advisories.ignore]` list in
+# `deny.toml` so both jobs accept the same waivers — keep them in sync.
+#
+# See deny.toml for the full justification block; this file just lists IDs.
+
+[advisories]
+ignore = [
+    # Wasmtime via yara-x 1.15 → wasmtime 40.0.4 (Cranelift x86_64 build,
+    # no component model, no Winch, no pooling allocator, no aarch64).
+    "RUSTSEC-2026-0085",
+    "RUSTSEC-2026-0086",
+    "RUSTSEC-2026-0087",
+    "RUSTSEC-2026-0088",
+    "RUSTSEC-2026-0089",
+    "RUSTSEC-2026-0091",
+    "RUSTSEC-2026-0092",
+    "RUSTSEC-2026-0093",
+    "RUSTSEC-2026-0094",
+    "RUSTSEC-2026-0095",
+    "RUSTSEC-2026-0096",
+    # bincode 2.0.1 unmaintained (yara-x internal serialization).
+    "RUSTSEC-2025-0141",
+    # rsa 0.9.10 Marvin timing-sidechannel (yara-x PE signature inspection).
+    "RUSTSEC-2023-0071",
+    # serde_yml 0.0.12 archived/unsound (parse-only SIGMA loader).
+    "RUSTSEC-2025-0068",
+]

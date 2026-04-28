@@ -174,7 +174,7 @@ jobs:
       contents: read
       checks: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: rustsec/audit-check@v2.0.0
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
@@ -187,7 +187,7 @@ jobs:
     name: cargo deny
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: EmbarkStudios/cargo-deny-action@v2
         with:
           log-level: warn
@@ -198,15 +198,41 @@ jobs:
   # govulncheck — Go vulnerability scan (analyses both go.sum and
   # actual call graph reachability, lower false-positive rate
   # than a flat advisory match).
+  #
+  # NOTE: protobuf stubs under go/internal/grpc/generated are
+  # generated artifacts (gitignored). govulncheck loads packages
+  # so they must exist before the scan runs — otherwise it fails
+  # with "could not import …/generated (invalid package name)".
   # ─────────────────────────────────────────────────────────────
   govulncheck:
     name: Go vulnerability scan
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
         with:
           go-version: "1.25"
+      - name: Install protoc
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y protobuf-compiler
+      - name: Install protoc Go plugins
+        run: |
+          go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
+          go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+      - name: Generate Go protobuf stubs
+        run: |
+          mkdir -p go/internal/grpc/generated
+          protoc \
+            --proto_path=proto \
+            --go_out=go/internal/grpc/generated \
+            --go_opt=paths=source_relative \
+            --go-grpc_out=go/internal/grpc/generated \
+            --go-grpc_opt=paths=source_relative \
+            proto/common.proto \
+            proto/host_analyzer.proto \
+            proto/network_scanner.proto
       - name: Install govulncheck
         run: go install golang.org/x/vuln/cmd/govulncheck@latest
       - name: Run govulncheck

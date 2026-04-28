@@ -18,6 +18,65 @@ all-features = true
 db-urls = ["https://github.com/rustsec/advisory-db"]
 yanked  = "deny"
 
+# Per-advisory ignores — keep this list tight and always carry a one-line
+# justification. Mirror any entry added here in `.cargo/audit.toml` so the
+# `cargo-audit` job (separate config) stays in sync.
+#
+# Most entries below trace to a single root cause: `yara-x 1.15.0` bundles
+# `wasmtime 40.0.4` + a small crypto/serde stack to compile and execute its
+# rule modules. The yara-x WASM runtime is fed by *our own* embedded rule
+# set (no attacker-controlled WASM, no component-model usage, no Winch,
+# no aarch64) and the crypto path is internal PE signature checks. All
+# entries are tracked for removal once yara-x cuts a release that bumps
+# wasmtime to >=42.0.2 / >=43.0.1 and drops the unmaintained crypto deps.
+ignore = [
+    # ── wasmtime (transitive via yara-x) ─────────────────────────────────
+    # 0085 — `flags` lift panic in component model (yara-x doesn't use the
+    #        component model — only core wasm).
+    "RUSTSEC-2026-0085",
+    # 0086 — Winch + 64-bit tables host-data leak (Cranelift in our build).
+    "RUSTSEC-2026-0086",
+    # 0087 — Cranelift x86-64 SIMD `f64x2.splat` miscodegen. yara-x
+    #        rule-compiled WASM does not emit this op; YARA rules also
+    #        come from us, not attacker input.
+    "RUSTSEC-2026-0087",
+    # 0088 — pooling-allocator instance data leak (yara-x uses one-shot
+    #        instances, not pooling).
+    "RUSTSEC-2026-0088",
+    # 0089 — Winch `table.fill` panic (Cranelift in our build).
+    "RUSTSEC-2026-0089",
+    # 0091/0092/0093 — component-model UTF-16 transcoding bugs (component
+    # model unused).
+    "RUSTSEC-2026-0091",
+    "RUSTSEC-2026-0092",
+    "RUSTSEC-2026-0093",
+    # 0094/0095 — Winch sandbox-escape variants (Cranelift in our build).
+    "RUSTSEC-2026-0094",
+    "RUSTSEC-2026-0095",
+    # 0096 — aarch64 Cranelift heap miscodegen. We only target x86_64.
+    "RUSTSEC-2026-0096",
+
+    # ── yara-x crypto / serde transitive deps ────────────────────────────
+    # bincode 2.0.1 unmaintained (RUSTSEC-2025-0141). Used by yara-x to
+    # serialize compiled rule sets — no network exposure, no untrusted
+    # input. Drops out once yara-x migrates to postcard/wincode.
+    "RUSTSEC-2025-0141",
+    # rsa 0.9.10 Marvin timing-sidechannel (RUSTSEC-2023-0071). yara-x
+    # uses RSA only for in-process PE signature inspection; an attacker
+    # cannot observe network-side timing on a key the agent verifies
+    # locally. Drops out when yara-x bumps the `rsa` crate (no constant-
+    # time release available yet upstream).
+    "RUSTSEC-2023-0071",
+
+    # ── serde_yml (workspace-level, SIGMA YAML loader) ───────────────────
+    # serde_yml 0.0.12 archived/unsound (RUSTSEC-2025-0068). The unsound
+    # path is `serde_yml::ser::Serializer.emitter`; our usage is parse-
+    # only (deserializing SIGMA rule files we own at build time). Migrate
+    # to `serde_yaml_ng` or `serde_norway` in a follow-up; tracked
+    # alongside the security-audit doc.
+    "RUSTSEC-2025-0068",
+]
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Bans — duplicate-version detection. Currently warn-only because the
 # workspace pulls 3 versions of `windows-sys` transitively (see
@@ -50,6 +109,11 @@ allow = [
     "MPL-2.0",
     "OpenSSL",
     "CC0-1.0",
+    # CDLA-Permissive-2.0 — Community Data License Agreement, permissive
+    # variant. Pulled transitively (e.g. webpki-roots data tables). License
+    # body is at https://cdla.dev/permissive-2-0/ and is compatible with
+    # downstream Apache-2.0 redistribution.
+    "CDLA-Permissive-2.0",
 ]
 exceptions = []
 

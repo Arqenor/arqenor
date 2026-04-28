@@ -6,7 +6,7 @@
 
 | Tool | Minimum version | Install |
 |---|---|---|
-| Rust toolchain | 1.80 | `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \| sh` |
+| Rust toolchain | 1.87 | `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \| sh` |
 | Go | 1.25 (CI), 1.23+ to build | https://go.dev/dl/ |
 | protoc | 3.x | See below |
 
