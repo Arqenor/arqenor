@@ -66,10 +66,11 @@ Base URL: `http://127.0.0.1:8080/api/v1`
 | Method | Path | Status | Description |
 |---|---|---|---|
 | `GET` | `/health` | Implemented | Service liveness + gRPC connectivity |
-| `GET` | `/alerts` | TODO | List stored alerts with severity filter |
-| `GET` | `/scans` | TODO | Scan history |
-| `POST` | `/scans` | TODO | Trigger a new on-demand scan |
-| `GET` | `/hosts` | TODO | Known hosts from network scan |
+| `GET` | `/alerts` | Implemented | List stored alerts (SQLite-backed) |
+| `GET` | `/alerts/stream` | Implemented | Real-time alerts as Server-Sent Events |
+| `GET` | `/scans` | Implemented | Scan history (SQLite-backed) |
+| `POST` | `/scans` | Implemented | Trigger an on-demand scan; returns `202` + `scan_id` |
+| `GET` | `/hosts` | Implemented | Known hosts from network scans |
 
 ### GET /health
 
