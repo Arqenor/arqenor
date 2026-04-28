@@ -15,7 +15,6 @@ import (
 	"arqenor/go/internal/api/routes"
 	"arqenor/go/internal/config"
 	grpcclient "arqenor/go/internal/grpc"
-	"arqenor/go/internal/scanner"
 	"arqenor/go/internal/store"
 )
 
@@ -53,9 +52,11 @@ func main() {
 
 	// Connect to the Rust host analyzer gRPC server.
 	// arqenor-grpc must be running before the orchestrator starts.
+	// The same connection is reused for the NetworkScanner service
+	// (Phase 2C) — see grpcclient.HostAnalyzerClient.ScanCIDR.
 	client, err := grpcclient.NewHostAnalyzerClient(logger)
 	if err != nil {
-		logger.Warn("could not connect to arqenor-grpc — host analysis unavailable",
+		logger.Warn("could not connect to arqenor-grpc — host analysis and network scans unavailable",
 			zap.Error(err))
 	} else {
 		defer func() { _ = client.Close() }()
@@ -83,7 +84,14 @@ func main() {
 	}
 	defer func() { _ = st.Close() }()
 
-	sc := scanner.New(logger)
+	// Pick the scanner backend.  When the gRPC client failed to dial
+	// the Rust server, leave it nil — the REST handler will surface a
+	// 503 instead of silently falling back to a less capable engine.
+	var scannerBackend routes.ScannerBackend
+	if client != nil {
+		scannerBackend = client
+	}
+
 	broadcaster := routes.NewAlertBroadcaster(cfg.Api.MaxSSEConnections)
 
 	// Subscribe to the Rust detection pipeline and fan alerts out to:
@@ -114,7 +122,7 @@ func main() {
 	}
 
 	// Start REST API.
-	router := api.NewServer(logger, sc, st, broadcaster, cfg.Api)
+	router := api.NewServer(logger, scannerBackend, st, broadcaster, cfg.Api)
 	ln, err := net.Listen("tcp", cfg.Api.ListenAddr)
 	if err != nil {
 		logger.Fatal("listen", zap.String("addr", cfg.Api.ListenAddr), zap.Error(err))

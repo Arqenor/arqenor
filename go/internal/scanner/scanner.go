@@ -1,15 +1,19 @@
+// Package scanner exposes the orchestrator-side data transfer types for
+// network scan results.
+//
+// As of Phase 2C the actual scanning is performed by the Rust
+// arqenor-grpc NetworkScanner service; the Go orchestrator only consumes
+// the streaming results over gRPC and stores them via store.Store.  The
+// HostResult / PortResult structs below remain here as the shared DTO
+// shape used by the gRPC adapter (internal/grpc) and the REST handlers
+// (internal/api/routes) — keeping them in this package avoids an import
+// cycle and preserves the existing public surface for REST clients.
+//
+// The legacy in-process Go scanner (Scanner struct, hostsInCIDR, etc.)
+// has been removed; do not re-introduce it.  If the Rust gRPC backend is
+// unavailable the orchestrator's /scans endpoint must surface the error
+// rather than silently falling back to a less capable engine.
 package scanner
-
-import (
-	"context"
-	"fmt"
-	"net"
-	"strconv"
-	"sync"
-	"time"
-
-	"go.uber.org/zap"
-)
 
 // HostResult holds scan results for one discovered host.
 type HostResult struct {
@@ -27,159 +31,4 @@ type PortResult struct {
 	State   string // "open" | "closed" | "filtered"
 	Service string
 	Banner  string
-}
-
-// Scanner is the main network scanning engine.
-type Scanner struct {
-	logger      *zap.Logger
-	workerCount int
-	timeout     time.Duration
-}
-
-func New(logger *zap.Logger) *Scanner {
-	return &Scanner{
-		logger:      logger,
-		workerCount: 256,
-		timeout:     2 * time.Second,
-	}
-}
-
-// ScanCIDR discovers live hosts in a CIDR range and scans them.
-func (s *Scanner) ScanCIDR(ctx context.Context, cidr string, ports []int) ([]HostResult, error) {
-	ips, err := hostsInCIDR(cidr)
-	if err != nil {
-		return nil, fmt.Errorf("parse cidr %s: %w", cidr, err)
-	}
-
-	s.logger.Info("starting scan", zap.String("cidr", cidr), zap.Int("hosts", len(ips)))
-
-	results := make([]HostResult, 0, len(ips))
-	var mu sync.Mutex
-
-	sem := make(chan struct{}, s.workerCount)
-	var wg sync.WaitGroup
-
-	for _, ip := range ips {
-		wg.Add(1)
-		sem <- struct{}{}
-		go func(target string) {
-			defer wg.Done()
-			defer func() { <-sem }()
-
-			result := s.scanHost(ctx, target, ports)
-			if result.IsUp {
-				mu.Lock()
-				results = append(results, result)
-				mu.Unlock()
-			}
-		}(ip)
-	}
-
-	wg.Wait()
-	s.logger.Info("scan complete", zap.Int("up", len(results)))
-	return results, nil
-}
-
-func (s *Scanner) scanHost(ctx context.Context, ip string, ports []int) HostResult {
-	result := HostResult{IP: ip}
-
-	// TCP connect check on port 80/443/22 to determine if host is up
-	probes := []int{80, 443, 22, 3389}
-	for _, p := range probes {
-		addr := net.JoinHostPort(ip, strconv.Itoa(p))
-		conn, err := net.DialTimeout("tcp", addr, s.timeout)
-		if err == nil {
-			conn.Close()
-			result.IsUp = true
-			break
-		}
-	}
-
-	if !result.IsUp {
-		return result
-	}
-
-	// Reverse DNS
-	if names, err := net.LookupAddr(ip); err == nil && len(names) > 0 {
-		result.Hostname = names[0]
-	}
-
-	// Port scan
-	if len(ports) > 0 {
-		result.Ports = s.scanPorts(ctx, ip, ports)
-	}
-
-	return result
-}
-
-func (s *Scanner) scanPorts(ctx context.Context, ip string, ports []int) []PortResult {
-	results := make([]PortResult, 0)
-	var mu sync.Mutex
-	sem := make(chan struct{}, 64)
-	var wg sync.WaitGroup
-
-	for _, port := range ports {
-		wg.Add(1)
-		sem <- struct{}{}
-		go func(p int) {
-			defer wg.Done()
-			defer func() { <-sem }()
-
-			addr := net.JoinHostPort(ip, strconv.Itoa(p))
-			conn, err := net.DialTimeout("tcp", addr, s.timeout)
-			if err != nil {
-				return
-			}
-			defer conn.Close()
-
-			pr := PortResult{
-				Port:  p,
-				Proto: "tcp",
-				State: "open",
-			}
-
-			// Basic banner grab
-			conn.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
-			buf := make([]byte, 256)
-			n, _ := conn.Read(buf)
-			if n > 0 {
-				pr.Banner = string(buf[:n])
-			}
-
-			mu.Lock()
-			results = append(results, pr)
-			mu.Unlock()
-		}(port)
-	}
-
-	wg.Wait()
-	return results
-}
-
-// hostsInCIDR enumerates all host IPs in a CIDR block.
-func hostsInCIDR(cidr string) ([]string, error) {
-	ip, ipnet, err := net.ParseCIDR(cidr)
-	if err != nil {
-		return nil, err
-	}
-
-	var ips []string
-	for ip := ip.Mask(ipnet.Mask); ipnet.Contains(ip); incIP(ip) {
-		ips = append(ips, ip.String())
-	}
-
-	// Remove network and broadcast address
-	if len(ips) > 2 {
-		return ips[1 : len(ips)-1], nil
-	}
-	return ips, nil
-}
-
-func incIP(ip net.IP) {
-	for j := len(ip) - 1; j >= 0; j-- {
-		ip[j]++
-		if ip[j] > 0 {
-			break
-		}
-	}
 }

@@ -99,8 +99,18 @@ func (b *AlertBroadcaster) SubscriberCount() int {
 
 // ── HTTP server ───────────────────────────────────────────────────────────────
 
+// ScannerBackend abstracts the scan engine the REST layer talks to.
+//
+// As of Phase 2C the production implementation is the gRPC client in
+// internal/grpc that streams results from the Rust NetworkScanner
+// service; the abstraction is kept narrow on purpose so unit tests can
+// substitute a fake without pulling in a full gRPC stack.
+type ScannerBackend interface {
+	ScanCIDR(ctx context.Context, cidr string, ports []int) ([]scanner.HostResult, error)
+}
+
 type Server struct {
-	scanner     *scanner.Scanner
+	scanner     ScannerBackend
 	store       *store.Store
 	logger      *zap.Logger
 	broadcaster *AlertBroadcaster
@@ -114,7 +124,11 @@ type Server struct {
 // no Stop hook because the orchestrator process exits when the engine
 // stops serving. Add one if/when the server is ever embedded in a longer
 // host process.
-func NewServer(logger *zap.Logger, sc *scanner.Scanner, st *store.Store, b *AlertBroadcaster, cfg config.ApiConfig) *gin.Engine {
+//
+// sc may be nil when the Rust gRPC backend is unreachable at startup;
+// in that case POST /scans responds 503 Service Unavailable rather than
+// silently dropping the request.
+func NewServer(logger *zap.Logger, sc ScannerBackend, st *store.Store, b *AlertBroadcaster, cfg config.ApiConfig) *gin.Engine {
 	srv := &Server{scanner: sc, store: st, logger: logger, broadcaster: b, cfg: cfg}
 
 	gin.SetMode(gin.ReleaseMode)
@@ -205,6 +219,13 @@ func (s *Server) handleStartScan(c *gin.Context) {
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if s.scanner == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{
+			"error": "scanner backend unavailable",
+		})
 		return
 	}
 
