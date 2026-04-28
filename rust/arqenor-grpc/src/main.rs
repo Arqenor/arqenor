@@ -84,9 +84,10 @@ async fn main() -> Result<()> {
 
     let host_svc = server::host_analyzer::HostAnalyzerService::new(allowed_roots);
 
-    let net_svc = server::network_scanner::NetworkScannerService::new(Arc::new(
-        arqenor_platform::DefaultNetworkScanner::new(),
-    ));
+    let net_svc = server::network_scanner::NetworkScannerService::new(
+        Arc::new(arqenor_platform::DefaultNetworkScanner::new()),
+        Some(host_svc.alert_broadcast()),
+    );
 
     tonic::transport::Server::builder()
         .http2_keepalive_interval(Some(HTTP2_KEEPALIVE_INTERVAL))

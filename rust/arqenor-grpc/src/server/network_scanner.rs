@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use tokio::sync::mpsc;
+use tokio::sync::{broadcast, mpsc};
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{Request, Response, Status};
 
@@ -11,6 +11,7 @@ use arqenor_core::traits::network_scanner::{
 };
 
 use crate::common;
+use crate::limits::sanitize_meta_value;
 use crate::network::{
     network_scanner_server::NetworkScanner as NetworkScannerSvc, HostResult as ProtoHostResult,
     PortResult as ProtoPortResult, ScanTarget,
@@ -24,12 +25,40 @@ const STREAM_CHANNEL_CAPACITY: usize = 32;
 
 pub struct NetworkScannerService {
     scanner: Arc<dyn NetworkScanner>,
+    /// Optional fan-out channel into the host-analyzer alert stream. When
+    /// present, `report_anomaly` publishes sanitized alerts here so every
+    /// live `WatchAlerts` subscriber sees them. `None` keeps `report_anomaly`
+    /// as a logging stub (useful for tests and for orchestrators that don't
+    /// host the analyzer service).
+    alert_broadcast: Option<broadcast::Sender<common::Alert>>,
 }
 
 impl NetworkScannerService {
-    pub fn new(scanner: Arc<dyn NetworkScanner>) -> Self {
-        Self { scanner }
+    pub fn new(
+        scanner: Arc<dyn NetworkScanner>,
+        alert_broadcast: Option<broadcast::Sender<common::Alert>>,
+    ) -> Self {
+        Self {
+            scanner,
+            alert_broadcast,
+        }
     }
+}
+
+/// Sanitize every externally-supplied string field in a proto Alert before it
+/// crosses back into the system. Mirrors `core_alert_to_proto` in
+/// `host_analyzer.rs` — see finding GRPC-METADATA.
+fn sanitize_external_alert(mut alert: common::Alert) -> common::Alert {
+    alert.message = sanitize_meta_value(&alert.message);
+    alert.kind = sanitize_meta_value(&alert.kind);
+    alert.rule_id = sanitize_meta_value(&alert.rule_id);
+    alert.attack_id = sanitize_meta_value(&alert.attack_id);
+    alert.metadata = alert
+        .metadata
+        .into_iter()
+        .map(|(k, v)| (k, sanitize_meta_value(&v)))
+        .collect();
+    alert
 }
 
 fn core_port_to_proto(p: CorePortResult) -> ProtoPortResult {
@@ -109,13 +138,19 @@ impl NetworkScannerSvc for NetworkScannerService {
     }
 
     async fn report_anomaly(&self, req: Request<common::Alert>) -> Result<Response<()>, Status> {
-        let alert = req.into_inner();
+        let alert = sanitize_external_alert(req.into_inner());
         tracing::info!(
             alert_id = %alert.id,
             kind = %alert.kind,
             severity = alert.severity,
-            "network anomaly reported (Phase 1 stub — not yet wired into detection pipeline)",
+            "network anomaly reported",
         );
+        if let Some(tx) = &self.alert_broadcast {
+            // No subscribers is a normal idle state — drop silently. Any other
+            // outcome means either lag (already counted by the receiver side)
+            // or channel close (the broadcaster outlives the service).
+            let _ = tx.send(alert);
+        }
         Ok(Response::new(()))
     }
 }
@@ -159,7 +194,15 @@ mod tests {
     }
 
     fn svc() -> NetworkScannerService {
-        NetworkScannerService::new(Arc::new(StubScanner))
+        NetworkScannerService::new(Arc::new(StubScanner), None)
+    }
+
+    fn svc_with_broadcast() -> (NetworkScannerService, broadcast::Receiver<common::Alert>) {
+        let (tx, rx) = broadcast::channel(8);
+        (
+            NetworkScannerService::new(Arc::new(StubScanner), Some(tx)),
+            rx,
+        )
     }
 
     #[tokio::test]
@@ -239,5 +282,35 @@ mod tests {
             .await
             .expect("ok");
         let _: () = resp.into_inner();
+    }
+
+    #[tokio::test]
+    async fn report_anomaly_broadcasts_sanitized_alert() {
+        let (svc, mut rx) = svc_with_broadcast();
+        let mut meta = std::collections::HashMap::new();
+        // Newline + control char must be stripped by sanitize_meta_value.
+        meta.insert("source".into(), "scan\nnoisy\x07".into());
+
+        svc.report_anomaly(Request::new(common::Alert {
+            id: "abc".into(),
+            severity: common::Severity::High as i32,
+            kind: "net.anomaly\n".into(),
+            message: "host beaconing\r\n".into(),
+            occurred_at: None,
+            metadata: meta,
+            rule_id: String::new(),
+            attack_id: String::new(),
+        }))
+        .await
+        .expect("ok");
+
+        let received = rx.recv().await.expect("broadcast received");
+        assert_eq!(received.id, "abc");
+        // Newlines and control bytes stripped by sanitize_meta_value.
+        assert!(!received.kind.contains('\n'));
+        assert!(!received.message.contains('\n'));
+        assert!(!received.message.contains('\r'));
+        assert!(!received.metadata["source"].contains('\n'));
+        assert!(!received.metadata["source"].contains('\x07'));
     }
 }
