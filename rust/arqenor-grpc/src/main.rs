@@ -17,6 +17,7 @@ pub mod network {
 }
 
 use anyhow::Result;
+use std::sync::Arc;
 use std::time::Duration;
 use tower::limit::ConcurrencyLimitLayer;
 use tracing::{info, warn};
@@ -83,6 +84,10 @@ async fn main() -> Result<()> {
 
     let host_svc = server::host_analyzer::HostAnalyzerService::new(allowed_roots);
 
+    let net_svc = server::network_scanner::NetworkScannerService::new(Arc::new(
+        arqenor_platform::DefaultNetworkScanner::new(),
+    ));
+
     tonic::transport::Server::builder()
         .http2_keepalive_interval(Some(HTTP2_KEEPALIVE_INTERVAL))
         .http2_keepalive_timeout(Some(HTTP2_KEEPALIVE_TIMEOUT))
@@ -93,6 +98,9 @@ async fn main() -> Result<()> {
         .layer(ConcurrencyLimitLayer::new(CONCURRENCY_LIMIT))
         .add_service(host::host_analyzer_server::HostAnalyzerServer::new(
             host_svc,
+        ))
+        .add_service(network::network_scanner_server::NetworkScannerServer::new(
+            net_svc,
         ))
         .serve(addr)
         .await?;
