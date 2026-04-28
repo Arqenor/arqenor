@@ -45,6 +45,13 @@ cfg_if! {
 
 **Rule:** never put `#[cfg(target_os = ...)]` outside of `arqenor-platform`. All other crates use the trait `ProcessMonitor` only.
 
+### Cross-platform helpers
+
+Two modules are now shared by all platform impls:
+
+- `arqenor_platform::hash` — streaming SHA-256 (`sha256_file_streaming`, 64 KiB chunks, capped at `DEFAULT_MAX_HASH_SIZE = 512 MiB`). Replaces `fs::read + Sha256::digest` everywhere.
+- `arqenor_platform::path_validate` — `ensure_no_reparse(path)` rejects symlinks and reparse points on every component; `ensure_no_reparse_strict(path)` (Linux only) additionally refuses world-writable parents outside `/tmp /var/tmp /dev/shm`. Called at the entry of `WindowsFsScanner::scan_path`, before `CreateFileW(FILE_FLAG_BACKUP_SEMANTICS)`, and before `inotify::add` on Linux.
+
 ---
 
 ## Windows
@@ -81,6 +88,18 @@ Implementation uses `winreg` for registry access and the `windows` crate for ser
 ### Network capture (Phase 3)
 
 Requires [Npcap](https://npcap.com/) installed in WinPcap compatibility mode. `gopacket` uses Npcap's `wpcap.dll`.
+
+### ETW provider coverage
+
+`windows::etw_consumer` enforces minimum coverage at session start. Providers are bucketed by `ProviderGroup` (Process, File, Network, Security). The session refuses to start unless at least one Process provider plus at least one File or Network provider attach successfully — this prevents silent "we attached zero providers but the session is up" failures. When `attached == 0`, an explicit `error!` is logged.
+
+### Credential-store accessor and PID recycling
+
+`windows::cred_guard` captures `ProcessIdentity { exe_path, creation_time }` at enumeration time via `OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION)` + `QueryFullProcessImageNameW` + `GetProcessTimes`. Before emitting an alert, the current `creation_time` is re-read; if it has changed, the PID has been recycled and the alert is skipped with a `warn!`.
+
+### Memory scan PPL fallback
+
+`windows::memory_scan` falls back to `PROCESS_QUERY_LIMITED_INFORMATION` when `OpenProcess(PROCESS_VM_READ)` is denied (typically PPL-protected processes). The result struct exposes `vm_read_denied: bool`. Modules are still enumerated via Toolhelp; only hollowing detection is skipped in that mode.
 
 ### WMI (planned Phase 2)
 

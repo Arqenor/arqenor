@@ -106,10 +106,24 @@ Examples:
 1. Fork the repo and create your branch from `dev`
 2. Add tests for any new functionality
 3. Ensure `cargo test --workspace` and `go test ./...` pass
-4. Ensure CI passes (fmt, clippy, vet, tests)
+4. Ensure CI passes (fmt, clippy, vet, tests, `enforce-main-policy`)
 5. Update documentation if you changed public APIs or user-facing behavior
 6. Open a PR against the `dev` branch with a clear description of the
    change and the motivation behind it
+
+### Local git hooks
+
+The `.githooks/pre-push` hook refuses direct pushes to `main` so the
+"Protect main" ruleset doesn't have to do the rejecting after a network
+roundtrip. Install it once after cloning:
+
+```bash
+bash scripts/setup-hooks.sh        # macOS / Linux / Git Bash on Windows
+# or
+pwsh scripts/setup-hooks.ps1       # PowerShell on Windows
+```
+
+To bypass intentionally (e.g. emergency fix): `git push --no-verify`.
 
 ### Contributing detection rules
 

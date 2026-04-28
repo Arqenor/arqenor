@@ -6,7 +6,6 @@ use arqenor_core::{
 use async_trait::async_trait;
 use chrono::Utc;
 use hex::encode;
-use sha2::{Digest, Sha256};
 use std::{fs, path::Path};
 use tokio::sync::mpsc::Sender;
 use uuid::Uuid;
@@ -19,6 +18,9 @@ use windows::Win32::Storage::FileSystem::{
     FILE_NOTIFY_CHANGE_FILE_NAME, FILE_NOTIFY_CHANGE_LAST_WRITE, FILE_NOTIFY_CHANGE_SECURITY,
     FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING,
 };
+
+use crate::hash::{sha256_file_streaming, DEFAULT_MAX_HASH_SIZE};
+use crate::path_validate::ensure_no_reparse;
 
 // FILE_ACTION_* constants from winnt.h (not re-exported by windows-rs as named constants)
 const FILE_ACTION_ADDED: u32 = 1;
@@ -61,7 +63,14 @@ unsafe fn parse_notify_buf(buf: &[u32], bytes_returned: u32) -> Vec<(u32, String
         let fname_bytes = *(base.add(offset + 8) as *const u32); // FileNameLength (bytes)
 
         let name_start = offset + FNI_HEADER_BYTES;
-        let name_end = name_start + fname_bytes as usize;
+        // Defence-in-depth — `name_start + fname_bytes` cannot overflow on a
+        // 64-bit `usize` for any realistic ETW buffer, but `checked_add`
+        // costs nothing and rules out UB if the kernel ever returns
+        // unexpectedly large values on a 32-bit target.
+        let name_end = match name_start.checked_add(fname_bytes as usize) {
+            Some(v) => v,
+            None => break,
+        };
         if name_end > bytes {
             break;
         }
@@ -76,7 +85,12 @@ unsafe fn parse_notify_buf(buf: &[u32], bytes_returned: u32) -> Vec<(u32, String
         if next_entry == 0 {
             break;
         }
-        offset += next_entry as usize;
+        // Same defence-in-depth on the chain advance: a malformed
+        // NextEntryOffset must not roll the offset back to zero.
+        offset = match offset.checked_add(next_entry as usize) {
+            Some(v) => v,
+            None => break,
+        };
     }
     results
 }
@@ -102,6 +116,13 @@ impl FsScanner for WindowsFsScanner {
         root: &Path,
         config: &ScanConfig,
     ) -> Result<Vec<FileEvent>, ArqenorError> {
+        // Refuse paths whose components are symlinks or reparse points — a
+        // junction planted by a non-elevated user could otherwise redirect
+        // the scan to attacker-controlled content.
+        ensure_no_reparse(root).map_err(|e| {
+            ArqenorError::Platform(format!("refusing to scan '{}': {e}", root.display()))
+        })?;
+
         let mut events = Vec::new();
         let walker = WalkDir::new(root).follow_links(false);
         let walker = if config.recursive {
@@ -154,10 +175,16 @@ impl FsScanner for WindowsFsScanner {
     }
 
     async fn hash_file(&self, path: &Path) -> Result<FileHash, ArqenorError> {
-        let bytes = fs::read(path)?;
-        let size = bytes.len() as u64;
-        let hash = encode(Sha256::digest(&bytes));
-        Ok(FileHash { sha256: hash, size })
+        // Streaming digest with an explicit cap (see `arqenor_platform::hash`)
+        // — replaces the prior `fs::read` path that buffered the whole file
+        // and could be coerced into OOM via attacker-planted artefacts.
+        let size = fs::metadata(path)?.len();
+        let digest = sha256_file_streaming(path, DEFAULT_MAX_HASH_SIZE)
+            .map_err(|e| ArqenorError::Platform(format!("hash_file({}): {e}", path.display())))?;
+        Ok(FileHash {
+            sha256: encode(digest),
+            size,
+        })
     }
 
     /// Watch `root` for filesystem changes using `ReadDirectoryChangesW`.
@@ -167,6 +194,14 @@ impl FsScanner for WindowsFsScanner {
     /// the directory is removed.
     async fn watch_path(&self, root: &Path, tx: Sender<FileEvent>) -> Result<(), ArqenorError> {
         use std::os::windows::ffi::OsStrExt;
+
+        // Reject symlinks/junctions/reparse points before opening the
+        // directory handle — `FILE_FLAG_BACKUP_SEMANTICS` follows reparse
+        // points by default, so without this check a low-privileged user
+        // could redirect the watcher to a directory they control.
+        ensure_no_reparse(root).map_err(|e| {
+            ArqenorError::Platform(format!("refusing to watch '{}': {e}", root.display()))
+        })?;
 
         let root = root.to_owned();
 

@@ -107,7 +107,7 @@ Légende : `[ ]` à faire · `[~]` en cours · `[x]` terminé
 - [x] **D5** — Wire memory scan results into Alert pipeline
   - `scan_tx`/`scan_rx` channel: external scans push `Alert` into pipeline via `with_scan_alerts(rx)`
   - Windows host scans run every 5 min: BYOVD → Alert (SENT-DRV-001, T1068), ntdll hooks → Alert (SENT-MEM-001, T1562.001), memory anomalies → Alert (SENT-MEM-002, T1055/T1055.012)
-  - YARA scanning (feature-gated `yara`) runs in same loop
+  - YARA scanning: ❌ not yet — `yara-x` not a dependency in any crate (see F3 below)
 
 ---
 
@@ -149,23 +149,29 @@ Légende : `[ ]` à faire · `[~]` en cours · `[x]` terminé
   - Training phase (30 jours), detection phase (continuous)
 
 - [x] **F3** — YARA Memory Scanning
-  - `yara_scan.rs` — `YaraScanner` via `yara-x` (pure Rust), scan per-process + scan_all
-  - `yara_rules.rs` — 9 embedded rules (Cobalt Strike, Meterpreter, Mimikatz, Sliver, Brute Ratel, Havoc, shellcode, PE injection, encoded PS)
-  - Feature-gated `yara` dans `arqenor-platform`
+  - `yara-x = "=1.15.0"` added behind `yara` feature in `arqenor-platform` (off by default; `arqenor-cli` exposes a forwarding `yara` feature)
+  - `rust/arqenor-platform/src/yara_scan.rs` — `YaraScanner` (pure-Rust `yara-x`), `scan_bytes` / `scan_process` / `scan_all_processes`, `matches_to_alerts` mapping to `SENT-YARA-NNN`
+  - `rust/arqenor-platform/src/yara_rules/` — 9 embedded `.yar` files: Cobalt Strike, Meterpreter, Mimikatz, Sliver, Brute Ratel, Havoc, generic shellcode, PE injection (reflective + Donut), encoded PowerShell
+  - Wired into the Windows host-scan loop in `arqenor-cli/src/commands/watch.rs::run_yara_scan` alongside BYOVD / ntdll-hooks / memory anomalies (5-min cadence)
+  - Per-process scan currently Windows-only (`ReadProcessMemory` + `VirtualQueryEx`); Linux/macOS return `YaraError::ProcessScanUnsupported` while `scan_bytes` works everywhere
+  - 5 unit tests in `yara_scan::tests` — builtin compile, custom rule match, no-match on benign bytes, Mimikatz canonical strings, alert-format roundtrip
 
-- [ ] **F4** — SQLite IOC persistence
-  - Persist `IocDatabase` to `arqenor-store` between restarts
-  - Incremental feed updates (delta, not full refresh)
+- [x] **F4** — SQLite IOC persistence
+  - `IocSqliteStore` in `rust/arqenor-store/src/ioc_store.rs` (schema `ioc_feeds` + `iocs` documented at top of file), implements the `IocPersistence` trait from `rust/arqenor-core/src/ioc/persistence.rs`
+  - Wired into the watch loop via `open_ioc_store` + `IocSqliteStore::open` in `rust/arqenor-cli/src/commands/watch.rs:70-281`
+  - Boot-time integration test: `rust/arqenor-cli/tests/ioc_boot.rs`
+  - Landed in commit `9e19a49 feat(ioc,correlation): persistence wiring + configurable flush window (#39)`
+  - Incremental delta feed updates remain a follow-up (current path persists full snapshots)
 
 - [x] **F5** — Wiring cleanup — ALL DONE
   - ✅ SIGMA rules in pipeline (process + file events → sigma::evaluate)
   - ✅ IOC checker in pipeline (hash on process/file, IP on connections)
   - ✅ Correlation engine in pipeline (emit_alert → ingest, flush_stale 60s, incident_tx)
   - ✅ Memory scan / ntdll / BYOVD → alerts via scan_tx (periodic 5 min)
-  - ✅ YARA scanning via scan_tx (feature-gated, periodic 5 min)
+  - ✅ YARA scanning wired (F3 — `yara-x` engine + 9 embedded rule files behind the `yara` feature, Windows host-scan loop pushes `SENT-YARA-NNN` alerts via `scan_tx`)
   - ✅ ConnectionMonitor wired: live beaconing + IOC IP detection
   - ✅ JA4 TLS fingerprinting module ready (needs packet source integration)
-  - gRPC WatchProcesses / WatchFilesystem (still unimplemented — server-streaming stubs)
+  - ✅ gRPC WatchProcesses / WatchFilesystem implemented in `rust/arqenor-grpc/src/server/host_analyzer.rs` (`watch_processes` lines 241-269 bridges core `ProcessEvent` → stream via `ReceiverStream`; `watch_filesystem` lines 309-352 bridges core `FileEvent` → stream, falling back to `default_fim_path()` when `root_path` is empty). Smoke-tested by `watch_filesystem_smoke` (line 584).
 
 ---
 
@@ -180,6 +186,31 @@ Légende : `[ ]` à faire · `[~]` en cours · `[x]` terminé
 | `arqenor-desktop` (UI) | E1–E5 | ✅ |
 | `arqenor-core` (pipeline wiring) | A5, B4, C5, D5, F5 | ✅ all wired |
 | `arqenor-ml` (nouveau) | F1 | ✅ (F2 behavioral pending) |
-| `arqenor-platform` (yara) | F3 | ✅ |
+| `arqenor-platform` (yara) | F3 | 🔴 not started — no `yara-x` dep yet |
 | `arqenor-core` (tls_fingerprint) | (Phase 3 F1) | ✅ |
-| `arqenor-store` (ioc persist) | F4 | 🔴 not started |
+| `arqenor-store` (ioc persist) | F4 | ✅ |
+
+---
+
+## Hardening (2026-04-27 security pass)
+
+### SIGMA engine
+
+- [x] **A-HARD-1** — Replace deprecated `serde_yaml 0.9` (RUSTSEC-2024-0320) with `serde_yml 0.0.12` for SIGMA YAML parsing (DEP-SERDE_YAML). `arqenor-core/Cargo.toml`. (2026-04-27)
+- [x] **A-HARD-2** — Bound regex input length to `MAX_REGEX_INPUT = 64 KiB`, `RegexBuilder::size_limit(1 MB)`, LRU cache for compiled regexes (SIGMA-REGEX). `arqenor-core/src/rules/sigma.rs`. (2026-04-27)
+
+### IOC pipeline
+
+- [x] **B-HARD-1** — Replace handcrafted `splitn(',')` parser with the `csv` crate (`ReaderBuilder::flexible(true).comment(b'#')`) for MalwareBazaar / Feodo / URLhaus feeds (IOC-CSV). (2026-04-27)
+- [x] **B-HARD-2** — `tokio::time::timeout(120s)` global on feed refresh; fetch + parse moved outside the lock; atomic swap on `RwLock<IocDb>` (IOC-FEED-TIMEOUT). (2026-04-27)
+- [x] **B-HARD-3** — `MAX_FEED_SIZE = 256 MiB`; streaming `read_body_capped` with `Content-Length` belt + `take` (IOC-SIZE). `arqenor-core/src/ioc/feeds.rs`. (2026-04-27)
+
+### Correlation engine
+
+- [x] **C-HARD-1** — `MAX_ACTIVE_INCIDENTS = 100_000` cap with auto-flush when reached, hardened doc-comment on `CorrelationEngine` (CORR-LEAK). (2026-04-27)
+- [x] **C-HARD-2** — `sanitize_metadata_value` applied in `pipeline::emit_alert` and `correlation::ingest` to strip control chars from `Alert.metadata` (CORR-INJECT). (2026-04-27)
+
+### Memory forensics
+
+- [x] **D-HARD-1** — PPL-protected processes: fallback to `OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION)` when `VM_READ` denied; new public `MemoryScanResult::vm_read_denied` flag (MEMORY-PPL). (2026-04-27)
+- [x] **D-HARD-2** — Streaming SHA-256 (`arqenor-platform/src/hash.rs`, 512 MiB cap) replaces `std::fs::read()` in `byovd`, `memory_scan`, `ntdll_check` (PIPE-HASH-OOM). (2026-04-27)

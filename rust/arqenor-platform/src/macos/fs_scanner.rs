@@ -6,11 +6,12 @@ use arqenor_core::{
 use async_trait::async_trait;
 use chrono::Utc;
 use hex::encode;
-use sha2::{Digest, Sha256};
 use std::{fs, path::Path};
 use tokio::sync::mpsc::Sender;
 use uuid::Uuid;
 use walkdir::WalkDir;
+
+use crate::hash::{sha256_file_streaming, DEFAULT_MAX_HASH_SIZE};
 
 use super::esf_dispatcher::EsfDispatcher;
 use super::esf_monitor::EsfRawEvent;
@@ -67,10 +68,14 @@ impl FsScanner for MacosFsScanner {
     }
 
     async fn hash_file(&self, path: &Path) -> Result<FileHash, ArqenorError> {
-        let bytes = fs::read(path)?;
-        let size = bytes.len() as u64;
+        // Streaming SHA-256 (64 KiB chunks) with an explicit per-file cap —
+        // see `arqenor_platform::hash` for the rationale. The previous
+        // `fs::read` path could OOM on attacker-planted files.
+        let size = fs::metadata(path)?.len();
+        let digest = sha256_file_streaming(path, DEFAULT_MAX_HASH_SIZE)
+            .map_err(|e| ArqenorError::Platform(format!("hash_file({}): {e}", path.display())))?;
         Ok(FileHash {
-            sha256: encode(Sha256::digest(&bytes)),
+            sha256: encode(digest),
             size,
         })
     }

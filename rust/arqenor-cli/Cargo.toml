@@ -1,7 +1,11 @@
 [package]
-name    = "arqenor-cli"
-version = "0.1.0"
-edition = "2021"
+name                 = "arqenor-cli"
+version              = "0.1.0"
+edition.workspace    = true
+license.workspace    = true
+repository.workspace = true
+authors.workspace    = true
+rust-version.workspace = true
 
 [[bin]]
 name = "arqenor"
@@ -19,6 +23,24 @@ tracing-subscriber = { workspace = true }
 serde_json        = { workspace = true }
 chrono            = { workspace = true }
 uuid              = { workspace = true }
+
+# eBPF kernel telemetry — Linux only. The crate compiles to an empty surface
+# on non-Linux targets (loader is `cfg(target_os = "linux")`), so wiring it
+# here is safe even though the workspace builds on Windows/macOS.
+[target.'cfg(target_os = "linux")'.dependencies]
+arqenor-ebpf = { path = "../../arqenor-ebpf" }
+
+[features]
+default = []
+# Forward to arqenor-platform's `yara` feature so a `cargo build --features yara`
+# at the CLI level pulls in the YARA engine + builtin rule set.
+yara = ["arqenor-platform/yara"]
+# Umbrella feature for production / release builds — enables every detector
+# that is *off by default* purely to keep clean compile times fast.
+# Currently activates: `yara` (~100 transitive crates for `yara-x`).
+# Future heavy detectors (e.g. `firewall-check`) can be folded in here without
+# touching downstream consumers.
+full-detection = ["yara"]
 
 [dev-dependencies]
 tempfile = "3"

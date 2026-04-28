@@ -1,8 +1,14 @@
 # Configuration Reference
 
-All runtime configuration lives in `configs/arqenor.toml` (TOML format). At startup, each binary looks for this file in the current working directory, then falls back to `~/.config/arqenor/arqenor.toml`.
+All runtime configuration lives in `configs/arqenor.toml` (TOML format).
 
-Override the path with the `--config <path>` flag (CLI / gRPC server) or `ARQENOR_CONFIG` environment variable.
+**Path probe order** (both Rust and Go sides):
+
+1. Explicit path argument (`--config <path>`).
+2. `ARQENOR_CONFIG` environment variable.
+3. `./configs/arqenor.toml` (relative to the current working directory).
+
+The Rust loader is `arqenor_core::config::Config::load()` / `Config::load_from(path)`. The Go loader lives in `internal/config` and follows the same probe order. Defaults are secure: API and gRPC bind to `127.0.0.1`, `max_file_size = 10 MiB`, `min_severity = medium`. **Do not flip `[api].listen_addr` to `0.0.0.0` until the Next.js SaaS auth layer is in place.**
 
 ---
 
@@ -42,8 +48,19 @@ network_scanner_addr = "127.0.0.1:50052"
 [api]
 
 # Bind address for the Gin REST API served by the Go orchestrator.
-# Change to "0.0.0.0:8080" to expose externally (use with care).
+# Defaults to localhost. Do NOT switch to 0.0.0.0 until the SaaS auth layer ships.
 listen_addr = "127.0.0.1:8080"
+
+# Maximum concurrent SSE alert subscribers. New subscribers above this cap
+# receive HTTP 503 with body {"error":"max sse connections reached"}.
+max_sse_connections = 100         # optional, default 100
+
+# Per-IP token-bucket rate limit (requests/second). Excess returns HTTP 429.
+rate_limit_per_sec = 20           # optional, default 20
+
+# Hard timeout (seconds) applied to scans triggered via POST /scans.
+# The handler wraps the scan goroutine in a context.WithTimeout of this duration.
+scan_timeout_seconds = 600        # optional, default 600
 
 
 # ─────────────────────────────────────────────
@@ -53,6 +70,10 @@ listen_addr = "127.0.0.1:8080"
 
 # Root paths to scan. Supports multiple entries.
 # Windows paths use double backslashes.
+#
+# IMPORTANT: this list is also the gRPC server's allowlist. Any incoming
+# ScanRequest whose root_path (after canonicalisation) does not start with
+# one of these prefixes is rejected with Status::permission_denied.
 fs_roots = [
   "C:\\Users",
   "C:\\Windows\\System32",
@@ -61,7 +82,9 @@ fs_roots = [
 # Maximum file size to hash (SHA-256), in bytes.
 # Files larger than this are recorded but not hashed.
 # 0 = no limit (not recommended for large roots).
-max_file_size = 10485760   # 10 MB
+# On the gRPC wire: max_size_bytes = 0 maps to the server default (10 GiB),
+# any value > 10 GiB is rejected.
+max_file_size = 10485760   # 10 MiB
 
 # Interval between automatic scans in watch mode (seconds).
 interval_secs = 60
@@ -101,13 +124,16 @@ min_severity = "medium"
 | Key | Type | Default | Description |
 |---|---|---|---|
 | `listen_addr` | address | `"127.0.0.1:8080"` | Go orchestrator REST bind address |
+| `max_sse_connections` | integer | `100` | SSE alert stream subscriber cap (HTTP 503 on overflow) |
+| `rate_limit_per_sec` | integer | `20` | Per-IP token-bucket rate limit (HTTP 429 on overflow) |
+| `scan_timeout_seconds` | integer | `600` | Per-scan `context.WithTimeout` for `POST /scans` |
 
 ### [scan]
 
 | Key | Type | Default | Description |
 |---|---|---|---|
-| `fs_roots` | string[] | — | Filesystem roots to scan |
-| `max_file_size` | integer | `10485760` | Max bytes to hash per file |
+| `fs_roots` | string[] | — | Filesystem roots to scan. Also the gRPC server allowlist for `ScanRequest.root_path` — paths outside it return `Status::permission_denied`. |
+| `max_file_size` | integer | `10485760` | Max bytes to hash per file. gRPC wire: `0` maps to 10 GiB, `> 10 GiB` is rejected. |
 | `interval_secs` | integer | `60` | Seconds between scans in watch mode |
 
 ### [alerts]
@@ -124,11 +150,14 @@ Any config key can be overridden via environment variables using the pattern `AR
 
 ```bash
 ARQENOR_GENERAL_LOG_LEVEL=debug
-ARQENOR_API_LISTEN_ADDR=0.0.0.0:9090
+ARQENOR_API_LISTEN_ADDR=127.0.0.1:9090
+ARQENOR_API_RATE_LIMIT_PER_SEC=50
 ARQENOR_ALERTS_MIN_SEVERITY=info
 ```
 
 Environment variables take precedence over the TOML file.
+
+The path of the config file itself is overridable with `ARQENOR_CONFIG=/etc/arqenor/arqenor.toml`.
 
 ---
 

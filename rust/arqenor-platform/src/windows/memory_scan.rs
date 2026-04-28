@@ -15,6 +15,8 @@ use windows::Win32::System::Memory::*;
 use windows::Win32::System::ProcessStatus::GetMappedFileNameW;
 use windows::Win32::System::Threading::*;
 
+use crate::hash::DEFAULT_MAX_HASH_SIZE;
+
 /// Maximum number of regions to enumerate per process (safety limit).
 const MAX_REGIONS: usize = 50_000;
 
@@ -41,6 +43,11 @@ pub struct MemoryScanResult {
     pub image_path: String,
     pub total_regions: usize,
     pub suspicious: Vec<MemoryAnomaly>,
+    /// True when we could not obtain `PROCESS_VM_READ` on the target (PPL,
+    /// protected processes, AV-protected services). When set, only the
+    /// region enumeration is partial — `total_regions` will be 0 and no
+    /// hollowing comparison was performed.
+    pub vm_read_denied: bool,
 }
 
 /// Detected memory anomaly.
@@ -67,59 +74,90 @@ pub enum MemoryAnomaly {
 
 /// Scan a single process for memory anomalies.
 ///
-/// Requires `PROCESS_QUERY_INFORMATION | PROCESS_VM_READ` access on the target.
+/// Tries to obtain `PROCESS_QUERY_INFORMATION | PROCESS_VM_READ` and falls
+/// back to `PROCESS_QUERY_LIMITED_INFORMATION` for protected processes (PPL,
+/// AV/EDR services) where `VM_READ` is denied. When the fallback path is
+/// taken, [`MemoryScanResult::vm_read_denied`] is set so callers know the
+/// region/hollowing analysis was skipped.
 pub fn scan_process(pid: u32) -> Result<MemoryScanResult, ArqenorError> {
     let image_path = process_image_path(pid).unwrap_or_default();
 
-    // SAFETY: OpenProcess is safe when given a valid PID; we check the result.
-    let handle = unsafe {
-        OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, false, pid)
-            .map_err(|e| ArqenorError::Platform(format!("OpenProcess({pid}): {e}")))?
+    // Try the full-access open first; degrade to a limited-info handle if the
+    // target is protected (PPL / antimalware light / etc.). Only return
+    // `Err` when *both* fail — a protected process should still produce a
+    // partial result rather than wrecking an entire scan loop.
+    // SAFETY: OpenProcess is safe with a valid PID; the result is checked.
+    let (handle, vm_read_denied) = unsafe {
+        match OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, false, pid) {
+            Ok(h) => (h, false),
+            Err(_) => match OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) {
+                Ok(h) => {
+                    tracing::debug!(
+                        target = "memory_scan",
+                        pid,
+                        "OpenProcess(VM_READ) denied — falling back to limited info (likely PPL)"
+                    );
+                    (h, true)
+                }
+                Err(e) => {
+                    return Err(ArqenorError::Platform(format!("OpenProcess({pid}): {e}")));
+                }
+            },
+        }
     };
 
-    let regions = enumerate_regions(handle);
-    let total_regions = regions.len();
     let mut suspicious = Vec::new();
+    let total_regions = if vm_read_denied {
+        // Without VM_READ we cannot reliably walk the VAD or compare PE
+        // headers. Surface a partial result and let the caller decide
+        // whether to escalate (e.g. via ETW Process Object events).
+        0
+    } else {
+        let regions = enumerate_regions(handle);
+        let total_regions = regions.len();
 
-    for region in &regions {
-        // Skip non-committed regions.
-        if region.state != MEM_COMMIT.0 {
-            continue;
-        }
+        for region in &regions {
+            // Skip non-committed regions.
+            if region.state != MEM_COMMIT.0 {
+                continue;
+            }
 
-        let is_executable = is_exec_protect(region.protect);
+            let is_executable = is_exec_protect(region.protect);
 
-        // 1. Anonymous executable memory (MEM_PRIVATE + exec + no mapped file).
-        if is_executable && region.mem_type == MEM_PRIVATE.0 && region.mapped_file.is_none() {
-            suspicious.push(MemoryAnomaly::AnonymousExecutable {
-                base: region.base,
-                size: region.size,
-                protect: region.protect,
-            });
-        }
+            // 1. Anonymous executable memory (MEM_PRIVATE + exec + no mapped file).
+            if is_executable && region.mem_type == MEM_PRIVATE.0 && region.mapped_file.is_none() {
+                suspicious.push(MemoryAnomaly::AnonymousExecutable {
+                    base: region.base,
+                    size: region.size,
+                    protect: region.protect,
+                });
+            }
 
-        // 2. Executable heap -- MEM_PRIVATE + exec + large region (>= 64 KB).
-        //    Heuristic: heap allocations are typically MEM_PRIVATE and large.
-        if is_executable
-            && region.mem_type == MEM_PRIVATE.0
-            && region.size >= 0x10000
-            && region.mapped_file.is_none()
-        {
-            suspicious.push(MemoryAnomaly::ExecutableHeap {
-                base: region.base,
-                size: region.size,
-            });
-        }
-    }
-
-    // 3. Process hollowing: compare first MEM_IMAGE region against on-disk PE.
-    if !image_path.is_empty() {
-        if let Some(first_image) = regions.iter().find(|r| r.mem_type == MEM_IMAGE.0) {
-            if let Some(anomaly) = check_hollowing(handle, &image_path, first_image.base) {
-                suspicious.push(anomaly);
+            // 2. Executable heap -- MEM_PRIVATE + exec + large region (>= 64 KB).
+            //    Heuristic: heap allocations are typically MEM_PRIVATE and large.
+            if is_executable
+                && region.mem_type == MEM_PRIVATE.0
+                && region.size >= 0x10000
+                && region.mapped_file.is_none()
+            {
+                suspicious.push(MemoryAnomaly::ExecutableHeap {
+                    base: region.base,
+                    size: region.size,
+                });
             }
         }
-    }
+
+        // 3. Process hollowing: compare first MEM_IMAGE region against on-disk PE.
+        if !image_path.is_empty() {
+            if let Some(first_image) = regions.iter().find(|r| r.mem_type == MEM_IMAGE.0) {
+                if let Some(anomaly) = check_hollowing(handle, &image_path, first_image.base) {
+                    suspicious.push(anomaly);
+                }
+            }
+        }
+
+        total_regions
+    };
 
     // SAFETY: Closing a valid handle we opened above.
     unsafe {
@@ -131,6 +169,7 @@ pub fn scan_process(pid: u32) -> Result<MemoryScanResult, ArqenorError> {
         image_path,
         total_regions,
         suspicious,
+        vm_read_denied,
     })
 }
 
@@ -213,9 +252,23 @@ fn enumerate_regions(handle: HANDLE) -> Vec<MemoryRegion> {
 
 /// Check for process hollowing by comparing in-memory PE header with on-disk image.
 fn check_hollowing(handle: HANDLE, image_path: &str, base: usize) -> Option<MemoryAnomaly> {
-    // Read on-disk PE header.
-    let disk_bytes = std::fs::read(image_path).ok()?;
-    if disk_bytes.len() < PE_HEADER_SIZE {
+    // Read on-disk PE header. We only need the first PE_HEADER_SIZE bytes
+    // for this comparison — open the file directly and read just the prefix
+    // rather than slurping the entire image into memory.
+    use std::io::Read;
+    let mut disk_file = std::fs::File::open(image_path).ok()?;
+    // Cap the on-disk image read at the platform-wide hash size cap as a
+    // belt-and-braces sanity check on the path (a >512 MiB file at the
+    // process image path is itself a finding).
+    let len = disk_file.metadata().ok()?.len();
+    if len > DEFAULT_MAX_HASH_SIZE {
+        return None;
+    }
+    if (len as usize) < PE_HEADER_SIZE {
+        return None;
+    }
+    let mut disk_bytes = vec![0u8; PE_HEADER_SIZE];
+    if disk_file.read_exact(&mut disk_bytes).is_err() {
         return None;
     }
     let disk_header = &disk_bytes[..PE_HEADER_SIZE];

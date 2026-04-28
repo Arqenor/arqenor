@@ -10,6 +10,20 @@ members = [
     "arqenor-ebpf",           # Phase 2 — Linux eBPF kernel telemetry (B2-B6)
 ]
 
+# Shared package metadata. Each member crate inherits these via
+# `license.workspace = true` etc. so cargo-deny sees a license expression
+# on every workspace crate (root LICENSE alone is not enough — `cargo deny
+# check licenses` looks at each crate's manifest).
+[workspace.package]
+license     = "Apache-2.0"
+edition     = "2021"
+repository  = "https://github.com/Arqenor/arqenor"
+homepage    = "https://github.com/Arqenor/arqenor"
+authors     = ["Arqenor contributors"]
+# 1.87 — first stable release with both `Option::is_none_or` (1.82) and
+# `u*::is_multiple_of` (1.87), both used in arqenor-core::rules::tls_fingerprint.
+rust-version = "1.87"
+
 [workspace.dependencies]
 tokio              = { version = "1", features = ["full"] }
 async-trait        = "0.1"
@@ -67,3 +81,35 @@ features = [
     # pulls this in, so we enable it explicitly.
     "Win32_System_IO",
 ]
+
+# ─────────────────────────────────────────────────────────────────────────────
+# windows-sys consolidation — see [DEP-WINSYS-DUP] in
+# docs/security-audit-202604.md.
+#
+# Three transitive versions are present in Cargo.lock today:
+#
+#   - 0.52.0 — pulled by `ring 0.17.14` and `rustix 0.38.44` (legacy line,
+#     still consumed via the tonic 0.14 / hyper / rustls chain).
+#   - 0.60.2 — pulled by `quinn-udp 0.5.14` (HTTP/3 stack — not yet bumped
+#     upstream to 0.61).
+#   - 0.61.2 — dominant version, used by 13+ direct/indirect crates
+#     (anstyle-wincon, errno, home, if-addrs, mio, rustix 1.1.4, socket2,
+#     tempfile, tokio, wasmtime-*, winapi-util, winreg, …).
+#
+# Strategy: pin a single workspace entry on the modern major (0.61). Workspace
+# crates that depend on `windows-sys` should use `windows-sys = { workspace =
+# true }` so additions of new direct deps are forced through one decision
+# point. The 0.52 / 0.60 dupes will only disappear once their upstream
+# parents (`ring`, `rustix 0.38`, `quinn-udp`) cut a release that bumps —
+# we cannot consolidate further without forking, which would defeat the
+# whole point of upstream tracking.
+#
+# Note: we deliberately do NOT add a `[patch.crates-io]` to force-rewrite
+# the older versions. `windows-sys` has had several breaking API/feature
+# changes between 0.52 → 0.60 → 0.61 (the `Win32_*` feature names were
+# reorganised); silently substituting would break the parent crates in
+# subtle ways. Track the trio in `cargo-deny` (`bans.multiple-versions =
+# "warn"`) and revisit when upstream catches up.
+[workspace.dependencies.windows-sys]
+version  = "0.61"
+features = []

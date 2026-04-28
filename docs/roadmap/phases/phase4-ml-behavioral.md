@@ -315,3 +315,13 @@ pub struct CorrelationEngine {
 - T1566 (phishing execution patterns)
 - Cross-technique attack chain detection
 - Zero-day behavioral anomalies (not in any existing ruleset)
+
+---
+
+## Hardening notes (2026-04-27 security audit pass)
+
+- **SIGMA YAML parser migrated** off `serde_yaml 0.9.34+deprecated` (RUSTSEC-2024-0320) to `serde_yml 0.0.12` — the former unique entry point for an attacker controlling `--sigma-dir` is now on a maintained crate.
+- **SIGMA regex hardening.** Input length capped at `MAX_REGEX_INPUT = 64 KiB`, `RegexBuilder::size_limit(1 MB)`, LRU cache for compiled regexes — closes the ReDoS-shaped DoS vector on very long cmdlines.
+- **IOC feed pipeline hardening.** `csv` crate (`flexible(true)`, `comment(b'#')`) replaces handcrafted `splitn(',')` parsers; `tokio::time::timeout(120s)` global on refresh; fetch + parse moved out of the lock with atomic swap on `RwLock<IocDb>`; download size hard-capped at 256 MiB streaming with a `Content-Length` belt.
+- **Correlation engine cap.** `MAX_ACTIVE_INCIDENTS = 100_000` with auto-flush; `sanitize_metadata_value` runs both in `pipeline::emit_alert` and `correlation::ingest` to strip control chars before insertion.
+- **F2 Isolation Forest** behavioral ML remains the open Phase 4 item — untouched by this pass.

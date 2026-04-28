@@ -16,17 +16,48 @@
 
 use std::collections::HashMap;
 use std::path::Path;
+use std::sync::Mutex;
 
-use serde_yaml::Value;
+use once_cell::sync::Lazy;
+use regex::Regex;
+use serde_yml::Value;
 
 use super::sigma_condition::{self, ConditionExpr};
 use crate::models::alert::Severity;
+
+// ── Hardening constants ──────────────────────────────────────────────────────
+
+/// Maximum number of SIGMA rules loaded from a directory in a single call to
+/// [`load_sigma_rules_from_dir`]. Hard cap to keep memory usage bounded when
+/// pointed at an oversized rule pack (e.g. a hostile mirror of SigmaHQ).
+pub const MAX_SIGMA_RULES: usize = 10_000;
+
+/// Maximum size (in bytes) of a single SIGMA rule file accepted by
+/// [`load_sigma_rules_from_dir`]. Files larger than this are skipped with a
+/// warning. Real SigmaHQ rules are typically <10 KB; the threshold is set
+/// generously to allow heavily-commented or multi-document rules while still
+/// rejecting obvious ZIP-bomb-style inputs.
+pub const MAX_RULE_SIZE_BYTES: u64 = 1024 * 1024; // 1 MiB
+
+/// Maximum input length (UTF-8 bytes / chars) the regex modifier will scan
+/// before truncating. Protects against ReDoS / pathological backtracking on
+/// huge command lines or file contents.
+pub const MAX_REGEX_INPUT: usize = 64 * 1024;
+
+/// Memory limit (bytes) for compiled regex automata.  64-bit defaults are
+/// generous and turn user-supplied rules into a memory bomb vector.
+const REGEX_SIZE_LIMIT: usize = 1_000_000;
+const REGEX_DFA_SIZE_LIMIT: usize = 1_000_000;
+
+/// Cap on the compiled-regex cache to keep memory bounded under adversarial
+/// SIGMA rule packs.
+const REGEX_CACHE_MAX: usize = 4096;
 
 // ── Error type ───────────────────────────────────────────────────────────────
 
 #[derive(Debug)]
 pub enum SigmaError {
-    Yaml(serde_yaml::Error),
+    Yaml(serde_yml::Error),
     Io(std::io::Error),
     MissingField(&'static str),
     InvalidCondition(sigma_condition::ConditionParseError),
@@ -46,8 +77,8 @@ impl std::fmt::Display for SigmaError {
 }
 
 impl std::error::Error for SigmaError {}
-impl From<serde_yaml::Error> for SigmaError {
-    fn from(e: serde_yaml::Error) -> Self {
+impl From<serde_yml::Error> for SigmaError {
+    fn from(e: serde_yml::Error) -> Self {
         Self::Yaml(e)
     }
 }
@@ -172,7 +203,7 @@ pub type EventFields = HashMap<String, String>;
 
 /// Parse a single SIGMA rule from a YAML string.
 pub fn parse_sigma_rule(yaml_str: &str) -> Result<SigmaRule, SigmaError> {
-    let doc: Value = serde_yaml::from_str(yaml_str)?;
+    let doc: Value = serde_yml::from_str(yaml_str)?;
 
     let title = str_field(&doc, "title")?;
     let id = str_field_opt(&doc, "id").unwrap_or_else(|| title.clone());
@@ -198,6 +229,13 @@ pub fn parse_sigma_rule(yaml_str: &str) -> Result<SigmaRule, SigmaError> {
 }
 
 /// Load all `.yml` / `.yaml` SIGMA rules from a directory (non-recursive).
+///
+/// Hardening:
+/// - Symlinks are refused (logged + skipped) to prevent rule-pack drops from
+///   reading arbitrary files outside the rules dir.
+/// - Files larger than [`MAX_RULE_SIZE_BYTES`] are skipped with a warning.
+/// - At most [`MAX_SIGMA_RULES`] rules are loaded per call; the rest are
+///   discarded with a single warning.
 pub fn load_sigma_rules_from_dir(path: &Path) -> Vec<SigmaRule> {
     let mut rules = Vec::new();
     let entries = match std::fs::read_dir(path) {
@@ -209,11 +247,54 @@ pub fn load_sigma_rules_from_dir(path: &Path) -> Vec<SigmaRule> {
     };
 
     for entry in entries.flatten() {
+        if rules.len() >= MAX_SIGMA_RULES {
+            tracing::warn!(
+                cap = MAX_SIGMA_RULES,
+                "SIGMA rule cap reached, skipping remaining files in {}",
+                path.display()
+            );
+            break;
+        }
+
         let p = entry.path();
         let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("");
         if ext != "yml" && ext != "yaml" {
             continue;
         }
+
+        // SIGMA-LIMIT: refuse symlinks — rule-pack maintainers should not be
+        // able to redirect us to /etc/passwd, ~/.ssh/id_rsa, etc.
+        match entry.file_type() {
+            Ok(ft) if ft.is_symlink() => {
+                tracing::warn!("skip symlink {}", p.display());
+                continue;
+            }
+            Ok(_) => {}
+            Err(e) => {
+                tracing::warn!("skip {} (file_type error): {e}", p.display());
+                continue;
+            }
+        }
+
+        // SIGMA-LIMIT: bound the per-file size before reading the contents.
+        match std::fs::metadata(&p) {
+            Ok(md) => {
+                if md.len() > MAX_RULE_SIZE_BYTES {
+                    tracing::warn!(
+                        size = md.len(),
+                        max = MAX_RULE_SIZE_BYTES,
+                        "skip oversized SIGMA rule {}",
+                        p.display()
+                    );
+                    continue;
+                }
+            }
+            Err(e) => {
+                tracing::warn!("skip {} (metadata error): {e}", p.display());
+                continue;
+            }
+        }
+
         match std::fs::read_to_string(&p) {
             Ok(content) => match parse_sigma_rule(&content) {
                 Ok(rule) => rules.push(rule),
@@ -286,9 +367,7 @@ fn match_value(event_value: &str, pattern: &str, modifier: &Modifier) -> bool {
         Modifier::Contains => event_value.contains(&pat),
         Modifier::StartsWith => event_value.starts_with(&pat),
         Modifier::EndsWith => event_value.ends_with(&pat),
-        Modifier::Regex => regex::Regex::new(pattern)
-            .map(|re| re.is_match(event_value))
-            .unwrap_or(false),
+        Modifier::Regex => match_regex(event_value, pattern),
         Modifier::Base64 => {
             use base64::Engine;
             let encoded = base64::engine::general_purpose::STANDARD.encode(pattern.as_bytes());
@@ -299,6 +378,64 @@ fn match_value(event_value: &str, pattern: &str, modifier: &Modifier) -> bool {
             match_cidr(event_value, &pat)
         }
     }
+}
+
+// ── SIGMA-REGEX hardening ───────────────────────────────────────────────────
+//
+// SIGMA rules are user-supplied YAML; the regex modifier is therefore an
+// untrusted-input → automaton compile pipeline that can be abused for ReDoS,
+// memory exhaustion, or unbounded scan time on large event values (e.g. an
+// attacker-controlled command line). Three controls:
+//   1. Compile via `RegexBuilder` with hard memory caps — bad rules log a
+//      warning and never match. They are never re-tried (cached as `None`).
+//   2. Truncate the haystack at `MAX_REGEX_INPUT` so a 100 MB blob does not
+//      cause super-linear scanning.
+//   3. Cache compiled regexes keyed by raw pattern. Bounded at
+//      `REGEX_CACHE_MAX` entries: when the cap is hit the cache is flushed,
+//      which is acceptable because compilation is amortised over millions of
+//      events per rule and recompiling is cheap.
+
+static REGEX_CACHE: Lazy<Mutex<HashMap<String, Option<Regex>>>> =
+    Lazy::new(|| Mutex::new(HashMap::new()));
+
+fn compile_regex(pattern: &str) -> Option<Regex> {
+    // Mutex poisoning here is benign — the cache holds no invariants.
+    let mut cache = REGEX_CACHE.lock().unwrap_or_else(|p| p.into_inner());
+    if let Some(slot) = cache.get(pattern) {
+        return slot.clone();
+    }
+    if cache.len() >= REGEX_CACHE_MAX {
+        cache.clear();
+    }
+    let compiled = regex::RegexBuilder::new(pattern)
+        .size_limit(REGEX_SIZE_LIMIT)
+        .dfa_size_limit(REGEX_DFA_SIZE_LIMIT)
+        .build()
+        .map_err(|e| {
+            tracing::warn!(%e, pattern, "rejecting SIGMA regex (compile failed or exceeded size limit)");
+            e
+        })
+        .ok();
+    cache.insert(pattern.to_string(), compiled.clone());
+    compiled
+}
+
+fn match_regex(event_value: &str, pattern: &str) -> bool {
+    let Some(re) = compile_regex(pattern) else {
+        return false;
+    };
+    // Truncate at a UTF-8 boundary close to MAX_REGEX_INPUT to avoid splitting
+    // a multi-byte codepoint.
+    let haystack: &str = if event_value.len() <= MAX_REGEX_INPUT {
+        event_value
+    } else {
+        let mut cut = MAX_REGEX_INPUT;
+        while cut > 0 && !event_value.is_char_boundary(cut) {
+            cut -= 1;
+        }
+        &event_value[..cut]
+    };
+    re.is_match(haystack)
 }
 
 fn match_cidr(ip_str: &str, cidr: &str) -> bool {
@@ -624,6 +761,26 @@ tags:
         event.insert("image_path".into(), r"C:\Windows\System32\cmd.exe".into());
         event.insert("cmdline".into(), "dir".into());
         assert!(!evaluate(&rule, &event));
+    }
+
+    #[test]
+    fn test_regex_input_is_bounded() {
+        // SIGMA-REGEX: a giant haystack must be truncated before matching so
+        // the regex engine never scans gigabytes of data.
+        let huge = "a".repeat(MAX_REGEX_INPUT * 4);
+        // Pattern matches an "x" that only appears past the truncation point —
+        // so a correct implementation must report `false`.
+        let mut polluted = huge.clone();
+        polluted.push('x');
+        assert!(!match_regex(&polluted, "x$"));
+    }
+
+    #[test]
+    fn test_regex_compile_failure_is_cached() {
+        // SIGMA-REGEX: malformed pattern must not panic and must consistently
+        // return false, including across multiple calls (cache).
+        assert!(!match_regex("anything", "(unclosed"));
+        assert!(!match_regex("anything", "(unclosed"));
     }
 
     #[test]

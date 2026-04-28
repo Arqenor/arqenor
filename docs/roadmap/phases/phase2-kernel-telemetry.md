@@ -281,3 +281,12 @@ observe — on macOS. This is the equivalent of real-time prevention mode.
 - T1053.005 — Scheduled Tasks (ETW real-time, not polling)
 - T1003.001 — LSASS credential dumping (handle monitoring)
 - T1014 — Rootkit (eBPF + kernel module monitoring)
+
+---
+
+## Hardening notes (2026-04-27 security audit pass)
+
+- **ETW fail-fast.** `windows/etw_consumer.rs` now uses a `ProviderGroup` (Process / File / Network / Security) and bails out at startup when the Process group plus at least one of File/Network is missing, instead of silently running with 0 attached providers. An `error!` is logged when `attached == 0`.
+- **eBPF fail-fast + drop counter.** `EbpfAgent::start()` returns `Err(EbpfLoadError::NoProbesAttached)` if no probe attached. A new `pub static EBPF_DROPPED_EVENTS: AtomicU64` is incremented on `mpsc::TrySendError::Full` and reported by a 60 s monitor task (`warn!` > 0, `error!` > 1000).
+- **PPL fallback for memory scan.** `windows/memory_scan.rs` falls back to `OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION)` when `PROCESS_VM_READ` is denied (LSASS, MsMpEng, …) and emits a partial `MemoryScanResult` with `vm_read_denied = true` instead of an outright error.
+- **Cred-guard TOCTOU.** `cred_guard.rs` snapshots `ProcessIdentity { exe_path, creation_time }` at handle-table enumeration and re-validates at lookup time to defeat PID-recycling false positives (or, worse, attacker-controlled recycling).

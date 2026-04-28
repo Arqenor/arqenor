@@ -13,14 +13,39 @@ import (
 
 	"arqenor/go/internal/api"
 	"arqenor/go/internal/api/routes"
+	"arqenor/go/internal/config"
 	grpcclient "arqenor/go/internal/grpc"
 	"arqenor/go/internal/scanner"
 	"arqenor/go/internal/store"
 )
 
+// dirPerm / dbPerm — secure-by-default permissions for the on-disk
+// state. The orchestrator is expected to run as the same UID that owns
+// the data directory; everyone else must be denied access (alerts may
+// contain sensitive process arguments / paths).
+const (
+	dirPerm os.FileMode = 0o700
+	dbPerm  os.FileMode = 0o600
+)
+
 func main() {
 	logger, _ := zap.NewProduction()
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
+
+	// Load config first — every downstream helper takes its values
+	// from cfg. Defaults are loopback-bound; absence of the TOML file
+	// is acceptable, malformed TOML is fatal.
+	cfg, cfgPath, err := config.Load("")
+	if err != nil {
+		logger.Fatal("load config", zap.String("path", cfgPath), zap.Error(err))
+	}
+	logger.Info("config loaded",
+		zap.String("path", cfgPath),
+		zap.String("listen_addr", cfg.Api.ListenAddr),
+		zap.Int("max_sse_connections", cfg.Api.MaxSSEConnections),
+		zap.Int("rate_limit_per_sec", cfg.Api.RateLimitPerSec),
+		zap.Int("scan_timeout_seconds", cfg.Api.ScanTimeoutSeconds),
+	)
 
 	ctx, cancel := signal.NotifyContext(context.Background(),
 		os.Interrupt, syscall.SIGTERM)
@@ -33,22 +58,33 @@ func main() {
 		logger.Warn("could not connect to arqenor-grpc — host analysis unavailable",
 			zap.Error(err))
 	} else {
-		defer client.Close()
+		defer func() { _ = client.Close() }()
 	}
 
-	dbPath := filepath.Join("data", "arqenor.db")
-	if err := os.MkdirAll(filepath.Dir(dbPath), 0o755); err != nil {
+	dbPath := filepath.Join(cfg.General.DataDir, "arqenor.db")
+	if err := os.MkdirAll(filepath.Dir(dbPath), dirPerm); err != nil {
 		logger.Fatal("create data dir", zap.String("path", filepath.Dir(dbPath)), zap.Error(err))
+	}
+	// MkdirAll respects umask; force tight perms even on platforms
+	// (and test environments) where umask is 022.
+	if err := os.Chmod(filepath.Dir(dbPath), dirPerm); err != nil {
+		logger.Warn("chmod data dir", zap.Error(err))
 	}
 
 	st, err := store.Open(dbPath)
 	if err != nil {
 		logger.Fatal("open store", zap.String("path", dbPath), zap.Error(err))
 	}
-	defer st.Close()
+	// modernc.org/sqlite respects umask when creating the DB file; bring
+	// the perms back to 0600 explicitly. Tolerate ENOENT in case Open
+	// did not need to create the file (e.g. memory-only configs).
+	if err := os.Chmod(dbPath, dbPerm); err != nil && !os.IsNotExist(err) {
+		logger.Warn("chmod db file", zap.String("path", dbPath), zap.Error(err))
+	}
+	defer func() { _ = st.Close() }()
 
 	sc := scanner.New(logger)
-	broadcaster := routes.NewAlertBroadcaster()
+	broadcaster := routes.NewAlertBroadcaster(cfg.Api.MaxSSEConnections)
 
 	// Subscribe to the Rust detection pipeline and fan alerts out to:
 	//   1. SQLite (durable storage)
@@ -78,14 +114,14 @@ func main() {
 	}
 
 	// Start REST API.
-	router := api.NewServer(logger, sc, st, broadcaster)
-	ln, err := net.Listen("tcp", ":8080")
+	router := api.NewServer(logger, sc, st, broadcaster, cfg.Api)
+	ln, err := net.Listen("tcp", cfg.Api.ListenAddr)
 	if err != nil {
-		logger.Fatal("listen :8080", zap.Error(err))
+		logger.Fatal("listen", zap.String("addr", cfg.Api.ListenAddr), zap.Error(err))
 	}
 
 	go func() {
-		logger.Info("REST API listening", zap.String("addr", ":8080"))
+		logger.Info("REST API listening", zap.String("addr", cfg.Api.ListenAddr))
 		if err := router.RunListener(ln); err != nil {
 			logger.Error("API server error", zap.Error(err))
 		}

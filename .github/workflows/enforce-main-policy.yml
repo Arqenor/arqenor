@@ -1,0 +1,59 @@
+# Soft enforcement of the rules we already enforce server-side via the
+# "Protect main" repository ruleset. This workflow runs the same checks
+# at the CI layer so violations are also visible in commit statuses and
+# in PR reviews — not just blocked at push time.
+#
+# The repo ruleset is the source of truth (linear history, PR with 1
+# review, dismiss stale, conversation resolution, squash-only). If you
+# are touching this workflow, mirror any change in the ruleset, and
+# vice-versa.
+#
+# Mirrors `arqenor-enterprise/.github/workflows/enforce-main-policy.yml`
+# — that one carries more weight because the private repo cannot use
+# rulesets on the free plan.
+
+name: Enforce main policy
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  statuses: write
+
+jobs:
+  policy-check:
+    name: Linear history + squash-merge convention
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Verify linear history (no merge commits)
+        shell: bash
+        run: |
+          parent_count=$(git cat-file -p HEAD | grep -c '^parent ' || true)
+          if [ "$parent_count" -ne 1 ]; then
+            echo "::error title=Linear history violated::HEAD has ${parent_count} parents — main must stay linear (squash-merge only)."
+            git log -1 --pretty=full
+            exit 1
+          fi
+          echo "OK: HEAD has exactly one parent (linear)."
+
+      - name: Verify squash-merge PR provenance
+        shell: bash
+        run: |
+          # Belt-and-braces: the "Protect main" ruleset already requires a
+          # PR with 1 review and squash-only merging, so the only way to
+          # land a non-squash commit here is an admin bypass. Hard fail
+          # surfaces that bypass loudly in the Actions tab.
+          subject=$(git log -1 --pretty=%s)
+          echo "Commit subject: ${subject}"
+          if ! echo "${subject}" | grep -Eq ' \(#[0-9]+\)$'; then
+            echo "::error title=Non-squash commit on main::Commit subject does not end with ' (#NNN)' — possible ruleset bypass."
+            git log -1 --pretty=full
+            exit 1
+          fi
+          echo "OK: commit references PR ${subject##* }"

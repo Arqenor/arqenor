@@ -257,3 +257,10 @@ pub fn check_lsa_protection() -> SecurityPosture {
 - T1562.001 — NTDLL hook removal (impair defenses)
 - T1068 — BYOVD privilege escalation
 - T1003.001 — LSASS memory read (enhanced: direct memory comparison)
+
+---
+
+## Hardening notes (2026-04-27 security audit pass)
+
+- **PPL-protected processes.** `windows/memory_scan.rs` now falls back to `OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION)` when `PROCESS_VM_READ` is denied. The new `MemoryScanResult::vm_read_denied` flag lets the pipeline distinguish "not enumerated" from "process clean", restoring partial telemetry on the most-targeted processes (LSASS, MsMpEng, …).
+- **Streaming SHA-256.** BYOVD (`byovd.rs`), NTDLL check (`ntdll_check.rs`) and memory scan (`memory_scan.rs`) all switched to `arqenor-platform/src/hash.rs` (default 512 MiB cap) — closes the OOM vector previously caused by hashing arbitrarily-large drivers / DLLs in a single `fs::read`.

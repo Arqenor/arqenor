@@ -56,6 +56,13 @@ jobs:
           # GHA runners ship a "bpftool" stub from linux-tools-common that
           # exits non-zero when no matching kernel package is installed.
           # Probe with ``bpftool version`` to detect a real installation.
+          #
+          # NOTE — since B7 (2026-04-26) the loader actually attaches the 5
+          # probes via libbpf-cargo-generated skeletons. Building the crate
+          # requires both vmlinux.h *and* a working bpftool/libbpf chain. The
+          # SKIP_EBPF fallback below remains so transient runner regressions
+          # don't take down the whole CI; remove the skip path once the
+          # ubuntu-latest runner stabilises BTF + bpftool.
           if [ -r /sys/kernel/btf/vmlinux ] && sudo bpftool version >/dev/null 2>&1; then
             if sudo bpftool btf dump file /sys/kernel/btf/vmlinux format c \
                  > arqenor-ebpf/src/probes/vmlinux.h; then
@@ -81,6 +88,15 @@ jobs:
           else
             cargo test --workspace --all-targets
           fi
+
+      # ── Heavy-feature build smoke ─────────────────────────────────────────
+      # The `full-detection` umbrella on arqenor-cli activates `yara`
+      # (yara-x — ~100 transitive crates). Default builds keep these off to
+      # stay fast, so without this step we'd never exercise the heavy path
+      # in CI and a feature-gated regression could slip in. `cargo check`
+      # is enough to catch type/feature errors without doing full codegen.
+      - name: cargo check (--features full-detection)
+        run: cargo check -p arqenor-cli --features full-detection --all-targets
 
   rust-check-windows:
     name: Rust / check (Windows)
@@ -142,14 +158,16 @@ jobs:
 
   # ─────────────────────────────────────────────────────────────
   # cargo-audit — RustSec advisory database scan
-  # Non-blocking for first adoption (continue-on-error: true) —
-  # we want signal, not a release blocker. Tighten by removing
-  # continue-on-error once the workspace is clean and pinned.
+  # Blocking: a known-vuln crate in the lockfile fails CI.
+  # The previous `continue-on-error: true` treated advisories as
+  # advisory-only — see [CI-AUDIT-SOFT] in docs/security-audit-202604.md.
+  # If a transitive advisory becomes unavoidable, prefer adding a
+  # narrowly-scoped ignore in `.cargo/audit.toml` over re-softening
+  # the whole job.
   # ─────────────────────────────────────────────────────────────
   audit:
     name: cargo-audit
     runs-on: ubuntu-latest
-    continue-on-error: true
     # `rustsec/audit-check` publishes its findings as a check-run, which
     # requires `checks: write` on top of the default `contents: read`.
     permissions:
@@ -160,3 +178,63 @@ jobs:
       - uses: rustsec/audit-check@v2.0.0
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
+
+  # ─────────────────────────────────────────────────────────────
+  # cargo-deny — broader supply-chain checks (advisories, bans,
+  # licenses, sources). Config in `deny.toml` at repo root.
+  # ─────────────────────────────────────────────────────────────
+  cargo-deny:
+    name: cargo deny
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          log-level: warn
+          command: check
+          arguments: --all-features
+
+  # ─────────────────────────────────────────────────────────────
+  # govulncheck — Go vulnerability scan (analyses both go.sum and
+  # actual call graph reachability, lower false-positive rate
+  # than a flat advisory match).
+  #
+  # NOTE: protobuf stubs under go/internal/grpc/generated are
+  # generated artifacts (gitignored). govulncheck loads packages
+  # so they must exist before the scan runs — otherwise it fails
+  # with "could not import …/generated (invalid package name)".
+  # ─────────────────────────────────────────────────────────────
+  govulncheck:
+    name: Go vulnerability scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.25"
+      - name: Install protoc
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y protobuf-compiler
+      - name: Install protoc Go plugins
+        run: |
+          go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
+          go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+      - name: Generate Go protobuf stubs
+        run: |
+          mkdir -p go/internal/grpc/generated
+          protoc \
+            --proto_path=proto \
+            --go_out=go/internal/grpc/generated \
+            --go_opt=paths=source_relative \
+            --go-grpc_out=go/internal/grpc/generated \
+            --go-grpc_opt=paths=source_relative \
+            proto/common.proto \
+            proto/host_analyzer.proto \
+            proto/network_scanner.proto
+      - name: Install govulncheck
+        run: go install golang.org/x/vuln/cmd/govulncheck@latest
+      - name: Run govulncheck
+        working-directory: go
+        run: govulncheck ./...

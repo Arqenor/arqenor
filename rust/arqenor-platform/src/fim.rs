@@ -1,8 +1,9 @@
 use arqenor_core::models::alert::{Alert, Severity};
-use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
+
+use crate::hash::{sha256_file_streaming, DEFAULT_MAX_HASH_SIZE};
 
 // ---------------------------------------------------------------------------
 // F1 — Baseline storage
@@ -17,11 +18,10 @@ pub struct FimBaseline {
 // ---------------------------------------------------------------------------
 
 fn sha256_file(path: &Path) -> Option<[u8; 32]> {
-    let bytes = std::fs::read(path).ok()?;
-    let hash = Sha256::digest(&bytes);
-    let mut arr = [0u8; 32];
-    arr.copy_from_slice(&hash);
-    Some(arr)
+    // Stream the file in 64 KiB chunks and refuse files above the default cap
+    // (512 MiB) — pre-streaming this used `fs::read` which would happily OOM
+    // on attacker-planted payloads in critical-path watch directories.
+    sha256_file_streaming(path, DEFAULT_MAX_HASH_SIZE).ok()
 }
 
 fn make_alert(severity: Severity, path: &Path, reason: &str, attack_id: &str) -> Alert {

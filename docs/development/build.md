@@ -124,8 +124,8 @@ go mod tidy
 # Build orchestrator
 go build -o orchestrator ./cmd/orchestrator
 
-# Test
-go test ./...
+# Test (4 packages: internal/config, internal/util, internal/api/middleware, internal/api/routes)
+go test -race -count=1 ./...
 
 # Vet
 go vet ./...
@@ -164,14 +164,18 @@ Open `go/` as the workspace root so that `go.mod` is at the root.
 
 ---
 
-## CI targets (planned)
+## CI targets
 
-| Job | Command | When |
-|---|---|---|
-| `check` | `cargo check --workspace --exclude arqenor-grpc` | Every push |
-| `test` | `cargo test --workspace --exclude arqenor-grpc` | Every push |
-| `clippy` | `cargo clippy --workspace -- -D warnings` | Every push |
-| `go-test` | `cd go && go test ./...` | Every push |
-| `build-windows` | `cargo build --release ...` on windows runner | Tag |
-| `build-linux` | `cargo build --release ...` on ubuntu runner | Tag |
-| `build-macos` | `cargo build --release ...` on macos runner | Tag |
+| Job | Runner | Command / scope | Blocking |
+|---|---|---|---|
+| `rust-fmt` | ubuntu | `cargo fmt --all -- --check` | Yes |
+| `rust-clippy-linux` | ubuntu | `cargo clippy --workspace --all-targets -- -D warnings` + `cargo test --workspace`. Auto-sets `SKIP_EBPF=1` if BTF or `bpftool` is missing → excludes `arqenor-ebpf` (loader degrades to `loader_stub.rs`). | Yes |
+| `rust-check-windows` | windows | `cargo check --workspace --exclude arqenor-ebpf` | Yes |
+| `go` | ubuntu | gofmt + `go vet ./...` + `go test -race -count=1 ./...` (Go 1.25). Regenerates proto stubs each run. | Yes |
+| `audit` | ubuntu | `rustsec/audit-check` | Yes (was non-blocking previously) |
+| `cargo-deny` | ubuntu | `EmbarkStudios/cargo-deny-action@v2` (config in `deny.toml`) | Yes |
+| `govulncheck` | ubuntu | `govulncheck ./...` (Go 1.25) | Yes |
+
+`RUSTFLAGS: "-Dwarnings"` is set workspace-wide — any warning fails the Linux clippy job.
+
+The Go side now ships unit tests under `internal/config`, `internal/util`, `internal/api/middleware`, and `internal/api/routes`; `go test ./...` runs them on every push.

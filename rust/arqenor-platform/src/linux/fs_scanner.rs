@@ -7,7 +7,6 @@ use async_trait::async_trait;
 use chrono::Utc;
 use hex::encode;
 use inotify::{EventMask, Inotify, WatchMask};
-use sha2::{Digest, Sha256};
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -15,6 +14,9 @@ use std::{
 use tokio::sync::mpsc::Sender;
 use uuid::Uuid;
 use walkdir::WalkDir;
+
+use crate::hash::{sha256_file_streaming, DEFAULT_MAX_HASH_SIZE};
+use crate::path_validate::ensure_no_reparse_strict;
 
 pub struct LinuxFsScanner;
 
@@ -75,10 +77,17 @@ impl FsScanner for LinuxFsScanner {
     }
 
     async fn hash_file(&self, path: &Path) -> Result<FileHash, ArqenorError> {
-        let bytes = fs::read(path)?;
-        let size = bytes.len() as u64;
-        let hash = encode(Sha256::digest(&bytes));
-        Ok(FileHash { sha256: hash, size })
+        // Pre-streaming this used `fs::read` followed by `Sha256::digest` —
+        // both required holding the entire file in memory. We now stream
+        // 64 KiB chunks through the digest and bail on files above the
+        // platform-wide size cap.
+        let size = fs::metadata(path)?.len();
+        let digest = sha256_file_streaming(path, DEFAULT_MAX_HASH_SIZE)
+            .map_err(|e| ArqenorError::Platform(format!("hash_file({}): {e}", path.display())))?;
+        Ok(FileHash {
+            sha256: encode(digest),
+            size,
+        })
     }
 
     /// Watch `root` for filesystem changes using Linux inotify.
@@ -87,6 +96,14 @@ impl FsScanner for LinuxFsScanner {
     /// Events are streamed to `tx`; the loop exits when `tx` is dropped or
     /// the watch descriptor becomes invalid.
     async fn watch_path(&self, root: &Path, tx: Sender<FileEvent>) -> Result<(), ArqenorError> {
+        // Reject symlinks/world-writable components before adding an inotify
+        // watch — a non-root user could otherwise swap a path component for
+        // a symlink between resolution and watch registration and quietly
+        // observe (or hide) events on a directory the agent thinks it owns.
+        ensure_no_reparse_strict(root).map_err(|e| {
+            ArqenorError::Platform(format!("refusing to watch '{}': {e}", root.display()))
+        })?;
+
         let root = root.to_owned();
         tokio::task::spawn_blocking(move || inotify_watch_loop(root, tx));
         Ok(())

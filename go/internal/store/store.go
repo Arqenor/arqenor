@@ -3,10 +3,17 @@ package store
 import (
 	"database/sql"
 	"fmt"
+	"os"
 	"time"
 
 	_ "modernc.org/sqlite"
 )
+
+// dbFilePerm is the on-disk permission applied to the SQLite DB and any
+// auxiliary files (-wal / -shm) it creates. The store may contain
+// alert messages that quote process command lines — privileged data —
+// so 0o600 is enforced even if the host umask is permissive.
+const dbFilePerm os.FileMode = 0o600
 
 type Alert struct {
 	ID         string    `json:"id"`
@@ -67,7 +74,15 @@ func Open(path string) (*Store, error) {
 		return nil, fmt.Errorf("open sqlite: %w", err)
 	}
 	if _, err := db.Exec(schema); err != nil {
+		_ = db.Close()
 		return nil, fmt.Errorf("migrate: %w", err)
+	}
+	// Tighten perms after sql.Open has materialised the file. modernc.org/sqlite
+	// honours the process umask on first create, which on a default Linux
+	// container is 022 → 0644 file mode. Force 0600 here. Best-effort:
+	// on Windows the chmod is a no-op for group/other bits, which is fine.
+	if _, statErr := os.Stat(path); statErr == nil {
+		_ = os.Chmod(path, dbFilePerm)
 	}
 	return &Store{db: db}, nil
 }

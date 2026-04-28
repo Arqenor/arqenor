@@ -43,9 +43,19 @@ message PersistenceEntry {
 }
 
 message ScanRequest {
+  // Filesystem path to scan. The server canonicalizes this path and rejects
+  // any value that does not resolve under one of its configured allowed
+  // roots (see `[scan].fs_roots` in `configs/arqenor.toml`). Symlinks,
+  // `..` traversal and non-existing paths are rejected with
+  // `INVALID_ARGUMENT`; canonical paths outside the allowlist are rejected
+  // with `PERMISSION_DENIED`. See security finding GRPC-PATH (audit 2026-04).
   string root_path              = 1;
   bool   recursive              = 2;
   repeated string include_exts  = 3;
+  // Maximum file size (bytes) to hash. `0` is interpreted server-side as
+  // "use the server default", *not* as "no limit". Values exceeding the
+  // server-side hard cap (currently 10 GiB) are rejected with
+  // `INVALID_ARGUMENT`. See security finding GRPC-MAXSIZE (audit 2026-04).
   uint64 max_size_bytes         = 4;
 }
 
