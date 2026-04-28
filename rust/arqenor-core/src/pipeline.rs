@@ -51,6 +51,8 @@ use tokio::sync::mpsc::{self, Receiver, Sender};
 use tokio::sync::RwLock;
 use uuid::Uuid;
 
+use crate::ebpf_bridge::EbpfEvent;
+
 // ── File-path rule ──────────────────────────────────────────────────────────
 
 /// A file-path based detection rule.
@@ -203,10 +205,23 @@ pub struct DetectionPipeline {
     conn_rx: Receiver<ConnectionInfo>,
     /// Receives externally-generated alerts (e.g. from host scan tasks).
     scan_rx: Receiver<Alert>,
+    /// Kernel telemetry from `arqenor-ebpf`. Populated via
+    /// [`DetectionPipeline::with_ebpf`]; defaults to a closed channel. The
+    /// type is uninhabited on non-Linux targets (`enum EbpfEvent {}`), so the
+    /// `select!` branch below compiles everywhere but never fires off-Linux.
+    ebpf_rx: Receiver<EbpfEvent>,
     alert_tx: Sender<Alert>,
     incident_tx: Option<Sender<Incident>>,
     stats: Arc<PipelineStats>,
     correlation: Mutex<CorrelationEngine>,
+}
+
+/// Allocate a Receiver whose Sender side is dropped immediately.
+/// `recv()` will return `None` on the first poll — matches the existing
+/// dummy-channel pattern used for `conn_rx` and `scan_rx`.
+fn closed_ebpf_channel() -> Receiver<EbpfEvent> {
+    let (_tx, rx) = mpsc::channel::<EbpfEvent>(1);
+    rx
 }
 
 impl DetectionPipeline {
@@ -221,6 +236,7 @@ impl DetectionPipeline {
         drop(_dummy_conn);
         let (_dummy_scan, scan_rx) = mpsc::channel::<Alert>(1);
         drop(_dummy_scan);
+        let ebpf_rx = closed_ebpf_channel();
 
         Self {
             config,
@@ -228,6 +244,7 @@ impl DetectionPipeline {
             file_rx,
             conn_rx,
             scan_rx,
+            ebpf_rx,
             alert_tx,
             incident_tx: None,
             stats: Arc::new(PipelineStats::default()),
@@ -246,6 +263,7 @@ impl DetectionPipeline {
     ) -> Self {
         let (_dummy_scan, scan_rx) = mpsc::channel::<Alert>(1);
         drop(_dummy_scan);
+        let ebpf_rx = closed_ebpf_channel();
 
         Self {
             config,
@@ -253,6 +271,7 @@ impl DetectionPipeline {
             file_rx,
             conn_rx,
             scan_rx,
+            ebpf_rx,
             alert_tx,
             incident_tx: None,
             stats: Arc::new(PipelineStats::default()),
@@ -271,6 +290,18 @@ impl DetectionPipeline {
     /// alerts are fed through correlation and emitted on `alert_tx`.
     pub fn with_scan_alerts(mut self, rx: Receiver<Alert>) -> Self {
         self.scan_rx = rx;
+        self
+    }
+
+    /// Feed kernel telemetry from `arqenor-ebpf` directly into the pipeline.
+    /// Each [`EbpfEvent`] is mapped to an [`Alert`] via
+    /// [`crate::ebpf_bridge::ebpf_event_to_alert`] (events that map to `None`
+    /// — currently `ProcessExec` — are dropped) and routed through the
+    /// correlation engine, the same as host-scan alerts. The receiver type is
+    /// uninhabited off-Linux, so calling this on Windows/macOS only wires a
+    /// channel that never fires.
+    pub fn with_ebpf(mut self, rx: Receiver<EbpfEvent>) -> Self {
+        self.ebpf_rx = rx;
         self
     }
 
@@ -293,10 +324,11 @@ impl DetectionPipeline {
         let mut file_open = true;
         let mut conn_open = true;
         let mut scan_open = true;
+        let mut ebpf_open = true;
 
         loop {
             // Exit when all event channels have closed.
-            if !process_open && !file_open && !conn_open && !scan_open {
+            if !process_open && !file_open && !conn_open && !scan_open && !ebpf_open {
                 break;
             }
 
@@ -343,6 +375,22 @@ impl DetectionPipeline {
                     }
                     None => {
                         scan_open = false;
+                    }
+                },
+                // Kernel telemetry from `arqenor-ebpf` routed through the
+                // same correlation lane as host-scan alerts. On non-Linux,
+                // `ebpf_rx` is a closed channel of an uninhabited type, so
+                // this branch compiles but never fires.
+                msg = self.ebpf_rx.recv(), if ebpf_open => match msg {
+                    Some(evt) => {
+                        if let Some(alert) = crate::ebpf_bridge::ebpf_event_to_alert(evt) {
+                            if !self.emit_alert(alert).await {
+                                break;
+                            }
+                        }
+                    }
+                    None => {
+                        ebpf_open = false;
                     }
                 },
                 _ = analysis_interval.tick() => {

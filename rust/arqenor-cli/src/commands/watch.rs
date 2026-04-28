@@ -181,9 +181,21 @@ pub async fn run(args: WatchArgs) -> Result<()> {
     // ── Host scan channel (platform modules push alerts here) ──────────────
     let (scan_tx, scan_rx) = mpsc::channel::<Alert>(256);
 
-    // ── Start detection pipeline (with connection stream) ─────────────────────
-    let pipeline = DetectionPipeline::with_connections(config, proc_rx, fim_rx, conn_rx, alert_tx)
-        .with_scan_alerts(scan_rx);
+    // ── eBPF kernel telemetry (Linux only) — boot before pipeline so the
+    //    receiver can be threaded into `.with_ebpf`. Holding `_ebpf_agent`
+    //    for the rest of the function keeps the probes attached.
+    #[cfg(target_os = "linux")]
+    let (_ebpf_agent, ebpf_rx) = start_ebpf_agent();
+
+    // ── Start detection pipeline (with connection stream + optional eBPF) ──
+    let pipeline = {
+        let builder =
+            DetectionPipeline::with_connections(config, proc_rx, fim_rx, conn_rx, alert_tx)
+                .with_scan_alerts(scan_rx);
+        #[cfg(target_os = "linux")]
+        let builder = builder.with_ebpf(ebpf_rx);
+        builder
+    };
     let stats = pipeline.stats();
     tokio::spawn(pipeline.run());
 
@@ -192,14 +204,7 @@ pub async fn run(args: WatchArgs) -> Result<()> {
     {
         tokio::spawn(run_windows_host_scans(scan_tx));
     }
-    // ── eBPF kernel telemetry (Linux: execve, RWX, ptrace, creds, ld.so.preload, cron) ──
-    #[cfg(target_os = "linux")]
-    {
-        if let Err(e) = spawn_ebpf_bridge(scan_tx) {
-            warn!("eBPF kernel telemetry unavailable: {e}");
-        }
-    }
-    #[cfg(not(any(target_os = "windows", target_os = "linux")))]
+    #[cfg(not(target_os = "windows"))]
     drop(scan_tx);
 
     // ── DB writer thread ──────────────────────────────────────────────────────
@@ -512,139 +517,44 @@ async fn run_yara_scan(scan_tx: &mpsc::Sender<Alert>) -> bool {
     true
 }
 
-// ── eBPF bridge (Linux) ────────────────────────────────────────────────────
+// ── eBPF bootstrap (Linux) ─────────────────────────────────────────────────
 //
-// Boots `arqenor-ebpf::EbpfAgent` and forwards typed kernel events as
-// pipeline `Alert`s on `scan_tx`. We deliberately funnel through the existing
-// `scan_rx` lane rather than adding a dedicated 5th input to
-// `DetectionPipeline`: kernel telemetry is conceptually the same kind of
-// "external observation that produces an alert" as the host scan loop, and
-// `with_scan_alerts` already routes through the correlation engine.
+// Boots `arqenor-ebpf::EbpfAgent` and hands the event receiver back to the
+// caller, who threads it directly into `DetectionPipeline::with_ebpf`. The
+// pipeline owns the conversion (`arqenor_core::ebpf_bridge::ebpf_event_to_alert`)
+// and the routing through correlation — this function only deals with
+// startup and graceful degradation when the agent fails to load (missing
+// CAP_BPF, kernel < 5.8, BTF unavailable, …).
 //
-// `ProcessExec` events are not surfaced as alerts on their own — they would
-// flood the alert stream on any active host. The execve probe is loaded for
-// future correlation rules; for now its events are observability-only and
-// dropped here. Every other kernel event maps to a `SENT-EBPF-*` alert.
+// Returns `(Option<EbpfAgent>, Receiver<EbpfEvent>)`. The agent must be kept
+// alive by the caller for the lifetime of the watch loop; dropping it does
+// not detach probes (skeletons leak), but keeping it in scope preserves the
+// `attached_probes` count and any future agent-level APIs. When the agent
+// fails to start, the returned receiver is a closed channel — the pipeline
+// `with_ebpf` call still works, just never receives anything.
 #[cfg(target_os = "linux")]
-fn spawn_ebpf_bridge(scan_tx: mpsc::Sender<Alert>) -> Result<()> {
+fn start_ebpf_agent() -> (
+    Option<arqenor_ebpf::loader::linux::EbpfAgent>,
+    mpsc::Receiver<arqenor_ebpf::events::EbpfEvent>,
+) {
     use arqenor_ebpf::loader::linux::EbpfAgent;
 
-    let (agent, mut rx) =
-        EbpfAgent::start().map_err(|e| anyhow::anyhow!("eBPF agent failed to start: {e}"))?;
-
-    let attached = agent.attached_probes();
-    if attached == 0 {
-        warn!("eBPF agent started with 0 probes attached — no kernel events will be ingested");
-        return Ok(());
-    }
-    tracing::info!(probes = attached, "eBPF kernel telemetry online");
-
-    tokio::spawn(async move {
-        // Hold the agent for the lifetime of the bridge task — dropping it
-        // does not detach probes (skeletons are leaked) but keeps the
-        // attached_probes count reachable from this scope.
-        let _agent = agent;
-        while let Some(evt) = rx.recv().await {
-            if let Some(alert) = ebpf_event_to_alert(evt) {
-                if scan_tx.send(alert).await.is_err() {
-                    tracing::debug!("eBPF bridge: scan channel closed, stopping");
-                    break;
-                }
+    match EbpfAgent::start() {
+        Ok((agent, rx)) => {
+            let attached = agent.attached_probes();
+            if attached == 0 {
+                warn!(
+                    "eBPF agent started with 0 probes attached — no kernel events will be ingested"
+                );
+            } else {
+                tracing::info!(probes = attached, "eBPF kernel telemetry online");
             }
+            (Some(agent), rx)
         }
-    });
-
-    Ok(())
-}
-
-#[cfg(target_os = "linux")]
-fn ebpf_event_to_alert(evt: arqenor_ebpf::events::EbpfEvent) -> Option<Alert> {
-    use arqenor_ebpf::events::EbpfEventKind;
-    use std::collections::HashMap;
-
-    let (kind, attack_id, severity, message, rule_id) = match evt.kind {
-        // Observability-only — would flood on any active workstation.
-        EbpfEventKind::ProcessExec => return None,
-        EbpfEventKind::MemoryRwxMap => (
-            "ebpf_rwx_map",
-            "T1055",
-            Severity::High,
-            format!("RWX memory mapping by {} (PID {})", evt.comm, evt.pid),
-            "SENT-EBPF-MMAP",
-        ),
-        EbpfEventKind::PtraceAttach => (
-            "ebpf_ptrace_attach",
-            "T1055.008",
-            Severity::High,
-            format!(
-                "ptrace attach by {} (PID {}) — possible code injection",
-                evt.comm, evt.pid
-            ),
-            "SENT-EBPF-PTRACE",
-        ),
-        EbpfEventKind::CommitCredsEscalation => (
-            "ebpf_creds_escalation",
-            "T1068",
-            Severity::Critical,
-            format!("credentials escalation by {} (PID {})", evt.comm, evt.pid),
-            "SENT-EBPF-CREDS",
-        ),
-        EbpfEventKind::KernelModuleLoad => (
-            "ebpf_kernel_module_load",
-            "T1014",
-            Severity::High,
-            format!(
-                "kernel module loaded by {}: {}",
-                evt.comm,
-                evt.filename.as_deref().unwrap_or("?")
-            ),
-            "SENT-EBPF-KMOD",
-        ),
-        EbpfEventKind::LdPreloadWrite => (
-            "ebpf_ld_preload_write",
-            "T1574.006",
-            Severity::Critical,
-            format!(
-                "/etc/ld.so.preload written by {} (PID {})",
-                evt.comm, evt.pid
-            ),
-            "SENT-EBPF-LDPRELD",
-        ),
-        EbpfEventKind::CronWrite => (
-            "ebpf_cron_write",
-            "T1053.003",
-            Severity::Medium,
-            format!(
-                "cron file modified by {} (PID {}): {}",
-                evt.comm,
-                evt.pid,
-                evt.filename.as_deref().unwrap_or("?")
-            ),
-            "SENT-EBPF-CRON",
-        ),
-    };
-
-    let mut metadata = HashMap::new();
-    metadata.insert("pid".into(), evt.pid.to_string());
-    metadata.insert("ppid".into(), evt.ppid.to_string());
-    metadata.insert("uid".into(), evt.uid.to_string());
-    metadata.insert("comm".into(), evt.comm);
-    if let Some(filename) = evt.filename {
-        metadata.insert("filename".into(), filename);
+        Err(e) => {
+            warn!("eBPF kernel telemetry unavailable: {e}");
+            let (_tx, rx) = mpsc::channel(1);
+            (None, rx)
+        }
     }
-    if let Some(extra) = evt.extra {
-        metadata.insert("extra".into(), extra);
-    }
-    metadata.insert("source".into(), "ebpf".into());
-
-    Some(Alert {
-        id: uuid::Uuid::new_v4(),
-        severity,
-        kind: kind.into(),
-        message,
-        occurred_at: chrono::Utc::now(),
-        metadata,
-        rule_id: Some(rule_id.into()),
-        attack_id: Some(attack_id.into()),
-    })
 }
