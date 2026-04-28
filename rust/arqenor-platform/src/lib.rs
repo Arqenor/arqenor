@@ -9,6 +9,7 @@ pub mod fim;
 pub mod hash;
 pub mod network_scanner;
 pub mod path_validate;
+pub mod services;
 
 #[cfg(feature = "yara")]
 pub mod yara_rules;
