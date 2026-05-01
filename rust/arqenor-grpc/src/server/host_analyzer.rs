@@ -25,10 +25,16 @@ use arqenor_platform::{
 use arqenor_store::IocSqliteStore;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::{mpsc, RwLock};
+use tokio::sync::{broadcast, mpsc, RwLock};
 
 /// Default connection polling interval in milliseconds (5 seconds).
 const CONN_POLL_INTERVAL_MS: u64 = 5_000;
+
+/// Capacity of the cross-service alert broadcast channel. Slow `WatchAlerts`
+/// subscribers see `RecvError::Lagged(skipped)` rather than blocking the
+/// publishers (the network scanner pipeline, future ingest paths, etc.).
+const ALERT_BROADCAST_CAPACITY: usize = 256;
+
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{Request, Response, Status};
 
@@ -39,6 +45,10 @@ struct SharedDetectionState {
     /// Filesystem-scan allowlist used to gate `ScanFilesystem` requests.
     /// See finding GRPC-PATH.
     allowed_roots: AllowedRoots,
+    /// Cross-service alert fan-out. Populated by external producers (e.g.
+    /// `NetworkScannerService::report_anomaly`) and merged into every live
+    /// `WatchAlerts` stream in addition to that stream's own pipeline output.
+    alert_broadcast: broadcast::Sender<common::Alert>,
 }
 
 pub struct HostAnalyzerService {
@@ -105,13 +115,23 @@ impl HostAnalyzerService {
             Vec::new()
         };
 
+        let (alert_broadcast, _) = broadcast::channel(ALERT_BROADCAST_CAPACITY);
+
         Self {
             shared: Arc::new(SharedDetectionState {
                 ioc_db,
                 sigma_rules,
                 allowed_roots,
+                alert_broadcast,
             }),
         }
+    }
+
+    /// Returns a clone of the cross-service alert broadcaster so other
+    /// services (e.g. `NetworkScannerService`) can publish externally
+    /// reported alerts into every live `WatchAlerts` subscription.
+    pub fn alert_broadcast(&self) -> broadcast::Sender<common::Alert> {
+        self.shared.alert_broadcast.clone()
     }
 }
 
@@ -471,14 +491,39 @@ impl HostAnalyzer for HostAnalyzerService {
 
         // Bridge core Alert → proto Alert on the stream channel.
         let (stream_tx, stream_rx) = mpsc::channel::<Result<common::Alert, Status>>(256);
+        let pipeline_tx = stream_tx.clone();
         tokio::spawn(async move {
             while let Some(alert) = core_rx.recv().await {
-                if stream_tx
+                if pipeline_tx
                     .send(Ok(core_alert_to_proto(alert)))
                     .await
                     .is_err()
                 {
                     break; // client disconnected
+                }
+            }
+        });
+
+        // Also subscribe to the cross-service broadcaster so externally
+        // reported alerts (e.g. from NetworkScanner::report_anomaly) reach
+        // this client. Lagged subscribers skip ahead with a warn rather than
+        // dropping the connection.
+        let mut external_rx = self.shared.alert_broadcast.subscribe();
+        tokio::spawn(async move {
+            loop {
+                match external_rx.recv().await {
+                    Ok(alert) => {
+                        if stream_tx.send(Ok(alert)).await.is_err() {
+                            break;
+                        }
+                    }
+                    Err(broadcast::error::RecvError::Lagged(skipped)) => {
+                        tracing::warn!(
+                            skipped,
+                            "WatchAlerts subscriber lagging on external broadcast"
+                        );
+                    }
+                    Err(broadcast::error::RecvError::Closed) => break,
                 }
             }
         });

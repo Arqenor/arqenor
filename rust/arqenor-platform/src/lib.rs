@@ -7,7 +7,9 @@ pub mod windows;
 
 pub mod fim;
 pub mod hash;
+pub mod network_scanner;
 pub mod path_validate;
+pub mod services;
 
 #[cfg(feature = "yara")]
 pub mod yara_rules;
@@ -22,6 +24,8 @@ use arqenor_core::traits::{
     connection_monitor::ConnectionMonitor, fs_scanner::FsScanner, persistence::PersistenceDetector,
     process_monitor::ProcessMonitor,
 };
+
+pub use crate::network_scanner::{new_network_scanner, DefaultNetworkScanner};
 
 pub fn new_connection_monitor() -> Box<dyn ConnectionMonitor> {
     cfg_if::cfg_if! {

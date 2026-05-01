@@ -55,6 +55,10 @@ ignore = [
     "RUSTSEC-2026-0095",
     # 0096 — aarch64 Cranelift heap miscodegen. We only target x86_64.
     "RUSTSEC-2026-0096",
+    # 0114 — table alloc panic when table exceeds host address space. Requires
+    #        attacker to supply a crafted WASM module; yara-x only runs our own
+    #        embedded rule set, no attacker-controlled WASM input.
+    "RUSTSEC-2026-0114",
 
     # ── yara-x crypto / serde transitive deps ────────────────────────────
     # bincode 2.0.1 unmaintained (RUSTSEC-2025-0141). Used by yara-x to

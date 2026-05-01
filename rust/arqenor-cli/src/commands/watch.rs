@@ -181,9 +181,21 @@ pub async fn run(args: WatchArgs) -> Result<()> {
     // ── Host scan channel (platform modules push alerts here) ──────────────
     let (scan_tx, scan_rx) = mpsc::channel::<Alert>(256);
 
-    // ── Start detection pipeline (with connection stream) ─────────────────────
-    let pipeline = DetectionPipeline::with_connections(config, proc_rx, fim_rx, conn_rx, alert_tx)
-        .with_scan_alerts(scan_rx);
+    // ── eBPF kernel telemetry (Linux only) — boot before pipeline so the
+    //    receiver can be threaded into `.with_ebpf`. Holding `_ebpf_agent`
+    //    for the rest of the function keeps the probes attached.
+    #[cfg(target_os = "linux")]
+    let (_ebpf_agent, ebpf_rx) = start_ebpf_agent();
+
+    // ── Start detection pipeline (with connection stream + optional eBPF) ──
+    let pipeline = {
+        let builder =
+            DetectionPipeline::with_connections(config, proc_rx, fim_rx, conn_rx, alert_tx)
+                .with_scan_alerts(scan_rx);
+        #[cfg(target_os = "linux")]
+        let builder = builder.with_ebpf(ebpf_rx);
+        builder
+    };
     let stats = pipeline.stats();
     tokio::spawn(pipeline.run());
 
@@ -463,6 +475,93 @@ async fn run_windows_host_scans(scan_tx: mpsc::Sender<Alert>) {
         #[cfg(feature = "yara")]
         if !run_yara_scan(&scan_tx).await {
             return;
+        }
+    }
+}
+
+/// Run a single YARA sweep across every accessible process and forward any
+/// matches as alerts on `scan_tx`.  Returns `false` when the channel is closed
+/// so the host-scan loop can exit cleanly.
+#[cfg(all(target_os = "windows", feature = "yara"))]
+async fn run_yara_scan(scan_tx: &mpsc::Sender<Alert>) -> bool {
+    use arqenor_platform::yara_scan::YaraScanner;
+
+    // Compile the builtin ruleset once per sweep.  Compilation is cheap
+    // relative to the 5-minute interval so we do it each tick to pick up
+    // future hot-reloaded rules without restructuring the loop.
+    let scanner = match tokio::task::spawn_blocking(YaraScanner::new).await {
+        Ok(Ok(s)) => s,
+        Ok(Err(e)) => {
+            warn!("YARA scanner init failed: {e}");
+            return true;
+        }
+        Err(e) => {
+            warn!("YARA scanner init task panicked: {e}");
+            return true;
+        }
+    };
+
+    let scanner_for_blocking = scanner.clone();
+    let results = match tokio::task::spawn_blocking(move || {
+        scanner_for_blocking.scan_all_processes()
+    })
+    .await
+    {
+        Ok(r) => r,
+        Err(e) => {
+            warn!("YARA scan task panicked: {e}");
+            return true;
+        }
+    };
+
+    for result in &results {
+        for alert in scanner.matches_to_alerts(result) {
+            if scan_tx.send(alert).await.is_err() {
+                return false;
+            }
+        }
+    }
+    true
+}
+
+// ── eBPF bootstrap (Linux) ─────────────────────────────────────────────────
+//
+// Boots `arqenor-ebpf::EbpfAgent` and hands the event receiver back to the
+// caller, who threads it directly into `DetectionPipeline::with_ebpf`. The
+// pipeline owns the conversion (`arqenor_core::ebpf_bridge::ebpf_event_to_alert`)
+// and the routing through correlation — this function only deals with
+// startup and graceful degradation when the agent fails to load (missing
+// CAP_BPF, kernel < 5.8, BTF unavailable, …).
+//
+// Returns `(Option<EbpfAgent>, Receiver<EbpfEvent>)`. The agent must be kept
+// alive by the caller for the lifetime of the watch loop; dropping it does
+// not detach probes (skeletons leak), but keeping it in scope preserves the
+// `attached_probes` count and any future agent-level APIs. When the agent
+// fails to start, the returned receiver is a closed channel — the pipeline
+// `with_ebpf` call still works, just never receives anything.
+#[cfg(target_os = "linux")]
+fn start_ebpf_agent() -> (
+    Option<arqenor_ebpf::loader::linux::EbpfAgent>,
+    mpsc::Receiver<arqenor_ebpf::events::EbpfEvent>,
+) {
+    use arqenor_ebpf::loader::linux::EbpfAgent;
+
+    match EbpfAgent::start() {
+        Ok((agent, rx)) => {
+            let attached = agent.attached_probes();
+            if attached == 0 {
+                warn!(
+                    "eBPF agent started with 0 probes attached — no kernel events will be ingested"
+                );
+            } else {
+                tracing::info!(probes = attached, "eBPF kernel telemetry online");
+            }
+            (Some(agent), rx)
+        }
+        Err(e) => {
+            warn!("eBPF kernel telemetry unavailable: {e}");
+            let (_tx, rx) = mpsc::channel(1);
+            (None, rx)
         }
     }
 }
