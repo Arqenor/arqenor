@@ -20,10 +20,10 @@ serde   = { workspace = true }
 # is stable in 0.24.x. Newer 0.25/0.26 releases changed the open/load
 # split (`MaybeUninit<OpenObject>` borrow lifetime) and the progs accessor
 # names — re-validate every field & method before bumping.
-libbpf-rs    = "0.24"
+libbpf-rs    = "0.26"
 thiserror    = { workspace = true }
 tokio        = { workspace = true }
 
 [target.'cfg(target_os = "linux")'.build-dependencies]
 # Must stay in lockstep with libbpf-rs major.minor.
-libbpf-cargo = "0.24"
+libbpf-cargo = "0.26"
